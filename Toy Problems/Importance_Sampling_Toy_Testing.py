@@ -135,7 +135,6 @@ def generate_storm_spatial(template_size, noise_level=0.1):
 
 #%% Function to generate random storm sizes, values, and intensities
 def generate_storm_templates(count, min_size, max_size, mean = 10, std = 3, noise_level=0.1):
-    # Transposition domain size
     name = [f'S_{i}' for i in range(1, count+1)]
 
     size_x = np.random.randint(min_size, max_size, count)
@@ -457,12 +456,12 @@ def print_sim_stats(df_prob):
 transposition_domain_size = (100, 100)
 
 #%% Define storm templates
-storm_templates = {
-    'A': (2, 2, 45, []),
-    'B': (4, 4, 80, []),
-    'C': (6, 6, 120, [])
-}
-# storm_templates = generate_storm_templates(50, 5, 50, mean=30, std=3, noise_level=0.1)
+# storm_templates = {
+#     'A': (2, 2, 45, []),
+#     'B': (4, 4, 80, []),
+#     'C': (6, 6, 120, [])
+# }
+storm_templates = generate_storm_templates(50, 5, 50, mean=30, std=3, noise_level=0.1)
 
 #%% Watershed cells
 # watershed_cells = {(x, y) for x in range(3, 7) for y in range(2, 6)}
@@ -490,9 +489,9 @@ dist_y = truncnorm(**truncnorm_params(watershed_stats.get('centroid')[1], waters
 
 #%% Simulation Parameters
 method_value = ['normal', 'storm', 'overlap', 'overlap_normal', 'total_intensity_values'][0]
-n_sim_mc_0 = 100000
-n_sim_mc_1 = 10000
-n_sim_is_1 = 10000
+n_sim_mc_0 = 10000
+n_sim_mc_1 = 1000
+n_sim_is_1 = 1000
 
 #%% Perform simulation
 tqdm._instances.clear()
@@ -522,30 +521,14 @@ df_prob_is_1 = get_freq_df_importance_sampling(transposition_domain_size, storm_
 )
 
 #%% Plot centroids for importance sampling
-(pn.ggplot(mapping=pn.aes(x='depth', y='prob'))
-    # + pn.geom_point(data=df_prob_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
-    # + pn.geom_point(data=df_prob_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_mc_1/1000}k)"'), size=0.1)
-    + pn.geom_point(data=df_prob_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
-    + pn.labs(
-        x = 'Rainfall Depth',
-        y = 'Probability',
-        title = 'Basic Monte Carlo vs Importance Sampling'
-    )
-    + pn.theme_bw()
-    + pn.theme(
-        title = pn.element_text(hjust = 0.5),
-        # legend_position = 'bottom',
-        legend_title = pn.element_blank(),
-        legend_key = pn.element_blank(),
-        axis_title_y = pn.element_text(ha = 'left'),
-    )
+(pn.ggplot(df_prob_is_1, pn.aes(x='x', y='y'))
+    + pn.geom_point(mapping=pn.aes(color='prob'), size=0.1)
+    + pn.xlim(1, transposition_domain_size[0])
+    + pn.ylim(1, transposition_domain_size[1])
+    + pn.scale_color_gradient(low='blue', high='red', trans='log10')
 )
 
 #%% Show simulation statistics
-# df_prob = df_prob_mc_0.copy()
-# df_prob = df_prob_mc_1.copy()
-# df_prob = df_prob_is_1.copy()
-
 print_sim_stats(df_prob_mc_0)
 print_sim_stats(df_prob_mc_1)
 print_sim_stats(df_prob_is_1)
