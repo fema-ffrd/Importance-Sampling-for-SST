@@ -1,0 +1,35 @@
+# name: Lint and Test
+
+# on:
+#   push:
+
+# jobs:
+#   publish:
+#     name: Lint and Test
+#     runs-on: ubuntu-latest
+#     environment: dev
+#     strategy:
+#       matrix:
+#         python-version: ["3.11"]
+
+#     steps:
+#       - name: Check out code
+#         uses: actions/checkout@v3
+
+#       - name: Set up AWS credentials
+#         run: |
+#           echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+#           echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+
+#       - uses: mamba-org/setup-micromamba@v1
+#         with:
+#           environment-file: ./env.yaml
+#           cache-environment-key: environment-dev
+#           cache-downloads-key: downloads-dev
+#           environment-name: ci
+
+#       - name: Run pylint and pytest
+#         shell: bash -el {0}
+#         run: |
+#           pytest
+#           pylint --fail-under=9 src/d2d/*.py

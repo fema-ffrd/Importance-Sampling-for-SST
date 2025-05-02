@@ -1,0 +1,74 @@
+# name: Build and Push to ECR Production
+
+# on:
+#   push:
+#     branches: [main]
+# permissions:
+#   id-token: write # This is required for requesting the JWT
+#   contents: read # This is required for actions/checkout
+
+# jobs:
+#   publish:
+#     environment: Production
+#     name: Build Image
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         python-version: ["3.11"]
+#     env:
+
+#       IMAGE_TAG: v0.4.0
+#       ECR_REPOSITORY: d2d
+
+#     steps:
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v1
+#         with:
+#           role-to-assume: arn:aws:iam::199505301519:role/GitHub-Production
+#           aws-region: us-east-1
+#           role-duration-seconds: 43200 # 12 hr
+          
+#       - name: Check out code
+#         uses: actions/checkout@v3
+
+#       - uses: mamba-org/setup-micromamba@v1
+#         with:
+#           environment-file: ./env.yaml
+#           cache-environment-key: environment-production
+#           cache-downloads-key: downloads-production
+#           environment-name: ci
+
+#       - name: Run pytest and pylint
+#         shell: bash -el {0}
+#         run: |
+#           pytest
+#           pylint --fail-under=9 src/d2d/*.py
+
+#       - name: Append Interface to Dockerfile
+#         run: |
+#           echo >> "${{ github.workspace }}/Dockerfile"; LABEL=$(jq -c . "${{ github.workspace }}/interface.json" | tr -d '\r\n' | sed 's/"/\\"/g'); echo -n "LABEL interface=\"$LABEL\"" >> "${{ github.workspace }}/Dockerfile"
+
+
+#       - name: Check if tag exists
+#         id: check-tag
+#         run: |
+#           if aws ecr describe-images --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=${{ env.IMAGE_TAG }} >/dev/null 2>&1; then
+#             echo "::set-output name=tag_exists::true"
+#           else
+#             echo "::set-output name=tag_exists::false"
+#           fi
+
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v1
+
+#       - name: Build, tag, and push image to Amazon ECR
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#         run: |
+#           if [[ "${{ steps.check-tag.outputs.tag_exists }}" == "true" ]]; then
+#             echo "Tag already exists. Aborting the build."
+#             exit 1
+#           fi
+#           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
