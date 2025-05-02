@@ -83,6 +83,6 @@ target/
 .mypy_cache/
 
 # MBI data folder (uncomment after first commit to keep large files out of version control)
-# /*data*/
+/*data*/
 
 /*.vscode*/
