@@ -1,6 +1,8 @@
 #region Libraries
 
 #%%
+from typing import Literal
+
 from tqdm import tqdm
 
 import numpy as np
@@ -17,12 +19,13 @@ from modules.shift_storm_center import shift_gdf
 #region Functions
 
 #%%
-def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame) -> pd.DataFrame:
+def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame, shift: Literal['watershed', 'storm', 'best'] = 'watershed') -> pd.DataFrame:
     '''Compute storm depths based on storm samples and watershed.
 
     Args:
         df_storm_sample (pd.DataFrame): Dataframe of storm samples obtained from 'sample_storms'.
         sp_watershed (gpd.GeoDataFrame): Watershed to compute depths in.
+        shift (Literal['watershed', 'storm', 'best'], optional): Whether to shift the watershed or the storm. Defaults to 'watershed'.
 
     Returns:
         pd.DataFrame: Updated 'df_storm_sample' with depths in 'depth' column.
@@ -32,7 +35,8 @@ def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame
 
     _v_depth = []
     for i, row in df_storm_sample.iterrows():
-        sp_watershed_shifted = shift_gdf(sp_watershed, row.x_del, row.y_del)
+        #TODO implement shift method
+        sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
         _depth = sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
         _v_depth.append(_depth)
 
