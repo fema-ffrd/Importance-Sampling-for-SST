@@ -10,16 +10,22 @@ import pandas as pd
 
 import geopandas as gpd
 
+#endregion -----------------------------------------------------------------------------------------
+#region Modules
 
 #%%
-from modules.compute_raster_stats import sum_raster_values_in_polygon
-from modules.shift_storm_center import shift_gdf
+from compute_raster_stats import sum_raster_values_in_polygon
+from shift_storm_center import shift_gdf
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
 
 #%%
-def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame, shift: Literal['watershed', 'storm', 'best'] = 'watershed') -> pd.DataFrame:
+def compute_depths(
+    df_storm_sample: pd.DataFrame,
+    sp_watershed: gpd.GeoDataFrame,
+    shift: Literal['watershed', 'storm', 'best'] = 'watershed',
+) -> pd.DataFrame:
     '''Compute storm depths based on storm samples and watershed.
 
     Args:
@@ -53,7 +59,13 @@ def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame
     return df_storm_sample
 
 #%% Print simulation statistics
-def print_sim_stats(df_prob, multiplier=1):
+def print_sim_stats(df_prob: pd.DataFrame, multiplier: float=1) -> None:
+    '''Print various simulation statistics such as proportion of samples with non-zero depth, and mean and standard error of depths.
+
+    Args:
+        df_prob (pd.DataFrame): Dataframe of probabilities from 'compute_depths'.
+        multiplier (float, optional): A multiplier for deth values. Defaults to 1.
+    '''
     n_sim = df_prob.shape[0]
     n_sim_intersect = df_prob.loc[lambda _: _.intersected == 1].shape[0]
     rate_success = n_sim_intersect/n_sim*100
@@ -86,13 +98,22 @@ def print_sim_stats(df_prob, multiplier=1):
     )
 
 #%% Create probability dataframe from depths (sorted) and weights (sorted)
-def get_df_freq_curve(depths, probs):
+def get_df_freq_curve(depths: list|np.ndarray|pd.Series, probs: list|np.ndarray|pd.Series) -> pd.DataFrame:
+    '''Generate frequency distribution curve datafra.e
+
+    Args:
+        depths (list | np.ndarray | pd.Series): Vector of depths.
+        probs (list | np.ndarray | pd.Series): Vector of probabilities.
+
+    Returns:
+        pd.DataFrame: Dataframe with inverse sorted depths and corresponding probabilities, exceedence probabilities, and return periods.
+    '''
     # Table of depths and probabilities
     df_prob_mc = pd.DataFrame(dict(
         depth = depths,
         prob = probs
     ))
-    
+
     # Exceedence probability
     df_prob_mc = \
     (df_prob_mc
@@ -101,6 +122,6 @@ def get_df_freq_curve(depths, probs):
         .assign(return_period = lambda _: 1/_.prob_exceed)
     )
 
-    return df_prob_mc    
+    return df_prob_mc
 
 #endregion -----------------------------------------------------------------------------------------

@@ -8,7 +8,6 @@ import numpy as np
 import geopandas as gpd
 
 import rasterio as rio
-import xarray as xr
 import rioxarray as rxr # This import enables the .rio accessor on xarray objects
 import rasterstats
 
@@ -19,7 +18,7 @@ import rasterstats
 def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gpd.GeoDataFrame:
     with rio.open(path_raster) as src:
         raster_crs = src.crs
-    
+
         # 3. Ensure CRS match
         if gdf.crs is None:
             print("Warning: GeoJSON has no CRS defined. Assuming it matches raster CRS.")
@@ -27,11 +26,11 @@ def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gp
         elif gdf.crs != raster_crs:
             print(f"Reprojecting polygon from {gdf.crs} to {raster_crs}...")
             gdf = gdf.to_crs(raster_crs)
-    
+
 #%% xarray
 def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gpd.GeoDataFrame:
     xr_dataset = rxr.open_rasterio(path_raster, masked=True)
-    
+
     if gdf.crs is None and xr_dataset.rio.crs is not None:
         print(f"Warning: GeoJSON has no CRS. Assuming it matches raster CRS: {xr_dataset.rio.crs}")
         gdf.crs = xr_dataset.rio.crs
@@ -42,30 +41,31 @@ def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gp
     return gdf
 
 #%%
-def match_crs_to_raster(gdf: gpd.GeoDataFrame, path_raster: str, backend: Literal['rasterio', 'xarray']='rasterio') -> gpd.GeoDataFrame:
+def match_crs_to_raster(
+    gdf: gpd.GeoDataFrame,
+    path_raster: str,
+    backend: Literal['rasterio', 'xarray']='rasterio'
+) -> gpd.GeoDataFrame:
+    '''Match crs of a GeoDataFrame to a raster.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Geodataframe to change crs of.
+        path_raster (str): Raster file path to use as correct crs to use.
+        backend (Literal[&#39;rasterio&#39;, &#39;xarray&#39;], optional): Backend to use. Defaults to 'rasterio'.
+
+    Returns:
+        gpd.GeoDataFrame: Geodataframe with updated crs.
+    '''
     match backend:
         case 'rasterio':
             return _match_crs_to_raster_rasterio(gdf, path_raster)
         case 'xarray':
             return _match_crs_to_raster_rasterio(gdf, path_raster)
         case _:
-            pass # Deal with this (throw error? use rasterio? return null values?)            
+            pass # Deal with this (throw error? use rasterio? return null values?)
 
 #%% rasterio
 def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodataframe) -> float:
-    """
-    Calculates the sum of raster pixel values that intersect a single polygon
-    defined in a GeoJSON file or string.
-
-    Args:
-        raster_path (str): Path to the input GeoTIFF raster file.
-        geojson_path_or_string (str): Path to the GeoJSON file or a GeoJSON string
-                                      containing a single polygon or multipolygon.
-
-    Returns:
-        float: The sum of the raster values within the polygon.
-               Returns np.nan if no intersection or other issues.
-    """
     try:
         # 1. Read the GeoJSON polygon
         if gdf.empty:
@@ -77,7 +77,7 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
             # Or, you could iterate or dissolve them:
             # polygon_geometry = gdf.geometry.unary_union # Dissolves into one geometry
             # gdf = gpd.GeoDataFrame(geometry=[polygon_geometry], crs=gdf.crs)
-        
+
         # Ensure we have a valid geometry
         if gdf.geometry.iloc[0] is None or gdf.geometry.iloc[0].is_empty:
             print("Error: The geometry in the GeoJSON is invalid or empty.")
@@ -109,7 +109,7 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
             # `nodata` can be specified; if None, it uses src.nodata. If src.nodata is None,
             # it will mask with 0. It's often good to use np.nan if possible for floats.
             # If raster is integer, NaN isn't directly possible, so it will use a fill_value.
-            
+
             out_image, out_transform = rio.mask.mask(
                 dataset=src,
                 shapes=geometries,
@@ -117,14 +117,14 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
                 all_touched=False, # Or True, depending on your definition of "intersect"
                 nodata=np.nan if src.dtypes[0] in ['float32', 'float64'] else raster_nodata
             )
-            
+
             # The output `out_image` is a 3D array (bands, height, width)
             # If single band, it will be (1, height, width). Squeeze it.
             masked_data = out_image.squeeze()
 
             # If `nodata` was set to np.nan, NaNs are the masked values.
             # If `nodata` was an integer, those are the masked values.
-            
+
             # 5. Sum the unmasked pixel values
             # If using np.nan for masking, np.nansum will sum non-NaN values.
             if src.dtypes[0] in ['float32', 'float64'] or raster_nodata is None and np.isnan(masked_data).any():
@@ -137,12 +137,12 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
                 # So, we sum all pixels that are NOT the nodata value used by mask.
                 # If `rasterio.mask` used `src.nodata` (or 0 if `src.nodata` was None for int types)
                 # for pixels outside the polygon, then:
-                
+
                 # The `mask` function's `nodata` parameter sets the fill value for pixels *outside*
                 # the mask. If the original raster also has a NoData value, we need to be careful.
                 # The `out_image` from `mask` will have `nodata` (or np.nan) for areas outside the polygon.
                 # Original NoData values *inside* the polygon will remain.
-                
+
                 # Let's refine:
                 # Pixels outside the polygon are now `nodata_used_for_masking`.
                 # Pixels inside the polygon retain their original values, including original NoData.
@@ -158,7 +158,7 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
                     valid_pixels_mask &= ~np.isnan(masked_data)
                 else:
                     valid_pixels_mask &= (masked_data != nodata_used_for_masking)
-                
+
                 # Additionally, if the original raster had a NoData value, exclude those too
                 # from the pixels that *were* inside the polygon.
                 if raster_nodata is not None and not np.isnan(raster_nodata):
@@ -175,9 +175,9 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
     except rio.errors.RasterioIOError as e:
         print(f"Rasterio Error: {e}")
         return np.nan
-    except gpd.io.file.DriverError as e:
-        print(f"GeoPandas Driver Error (check GeoJSON format/path): {e}")
-        return np.nan
+    # except gpd.io.file.DriverError as e:
+    #     print(f"GeoPandas Driver Error (check GeoJSON format/path): {e}")
+    #     return np.nan
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         # import traceback
@@ -187,15 +187,16 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
 #%% rasterstats
 def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodataframe) -> float:
     try:
-        if gdf.empty: return np.nan
-        
+        if gdf.empty:
+            return np.nan
+
         # rasterstats works with the vector's CRS, it will reproject raster data on the fly
         # if necessary, but it's often more efficient if they match.
         # Let's ensure polygon is in a projected CRS if raster is, or vice-versa for accuracy.
         # For simplicity here, we'll assume they will align or rasterstats handles it.
         # However, for best results and performance, ensure CRS alignment beforehand.
         with rio.open(raster_path) as src:
-            affine_transform = src.transform
+            # affine_transform = src.transform
             if gdf.crs is None and src.crs is not None:
                 print(f"Warning: GeoJSON has no CRS. Assuming it matches raster CRS: {src.crs}")
                 gdf.crs = src.crs # Tentatively assign
@@ -222,7 +223,7 @@ def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodata
             # This can happen if no pixels intersect or all intersecting pixels are NoData
             print("No valid sum found by rasterstats (no intersection or all NoData).")
             return 0.0 # Or np.nan, depending on desired behavior for no data
-        
+
         # stats_results is a list of dictionaries, one for each feature in 'vectors'
         # Since we assume one polygon:
         return float(stats_results[0]['sum'])
@@ -236,12 +237,13 @@ def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodata
 #%% xarray
 def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe) -> float:
     try:
-        if gdf.empty: return np.nan
+        if gdf.empty:
+            return np.nan
 
         # 1. Open raster with rioxarray
         # masked=True converts NoData to NaN
         rds = rxr.open_rasterio(raster_path, masked=True)
-        
+
         # 2. If multi-band, select one. Squeeze if single band was read with band dim.
         if 'band' in rds.dims and rds.sizes['band'] > 1:
             rds = rds.sel(band=1) # Select first band
@@ -266,10 +268,10 @@ def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe
             drop=True,
             # from_disk=True # If using dask for very large files
         )
-        
+
         # `clipped_da` will have NaNs for pixels outside the polygon within the cropped extent.
         # Original NaNs (from NoData) within the polygon will also be NaNs.
-        
+
         # 5. Sum the values
         # np.nansum is appropriate as masked values and original NoData are NaN
         total_sum = np.nansum(clipped_da.data) # .data gets the underlying numpy array
@@ -283,7 +285,20 @@ def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe
         return np.nan
 
 #%%
-def sum_raster_values_in_polygon(raster_path: str, gdf: gpd.geodataframe, backend: Literal['rasterio', 'rasterstats' 'xarray']='xarray') -> float:
+def sum_raster_values_in_polygon(
+    raster_path: str,
+    gdf: gpd.GeoDataFrame,
+    backend: Literal['rasterio', 'rasterstats' 'xarray']='xarray'
+) -> float:
+    '''Calculates the sum of raster pixel values that intersect a single polygon in a geodataframe.
+    Args:
+        raster_path (str): Path to the input raster file.
+        gdf (gpd.GeoDataFrame): Geodataframe.
+        backend (Literal[&#39;rasterio&#39;, &#39;rasterstats&#39; &#39;xarray&#39;], optional): Backend to use. Defaults to 'xarray'.
+
+    Returns:
+        float: The sum of the raster values within the polygon. Returns np.nan if no intersection or other issues.
+    '''
     match backend:
         case 'rasterio':
             return _sum_raster_values_in_polygon_rasterio(raster_path, gdf)
@@ -292,6 +307,6 @@ def sum_raster_values_in_polygon(raster_path: str, gdf: gpd.geodataframe, backen
         case 'xarray':
             return _sum_raster_values_in_polygon_xarray(raster_path, gdf)
         case _:
-            pass # Deal with this (throw error? use xarray? return null values?)            
+            pass # Deal with this (throw error? use xarray? return null values?)
 
 #endregion -----------------------------------------------------------------------------------------
