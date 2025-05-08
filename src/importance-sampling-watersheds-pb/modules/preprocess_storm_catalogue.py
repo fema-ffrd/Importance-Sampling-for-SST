@@ -18,8 +18,16 @@ import rioxarray as rxr # This import enables the .rio accessor on xarray object
 #region Functions
 
 #%%
-def get_files_pathlib(folder_path, extension = None):
-    """Gets a list of files in a folder using pathlib."""
+def get_files_pathlib(folder_path: str, extension: str = None) -> list:
+    '''Get a list of files in a folder path.
+
+    Args:
+        folder_path (str): Folder path.
+        extension (str, optional): Extension to filter. Defaults to None.
+
+    Returns:
+        list: List of file paths.
+    '''
     folder = pathlib.Path(folder_path)
     if not folder.is_dir():
         print(f"Error: {folder_path} is not a valid directory.")
@@ -33,12 +41,12 @@ def get_files_pathlib(folder_path, extension = None):
     return files # Returns a list of Path objects
 
 def sum_netcdf_to_tif(
-        netcdf_filepath: str, 
-        variable_name='band_data', 
-        stack_dimension_name='time', 
-        output_tif_filepath='nc_sum.tif', 
-        output_nodata=None) -> None:
-    """
+        netcdf_filepath: str,
+        variable_name='band_data',
+        stack_dimension_name='time',
+        output_tif_filepath='nc_sum.tif',
+        output_nodata: float=None) -> None:
+    '''
     Sums raster layers from a NetCDF file along a specified dimension and saves
     the result as a GeoTIFF. Null values (NaNs) are treated as zero in the sum.
 
@@ -53,7 +61,7 @@ def sum_netcdf_to_tif(
                                         a default. Common choices are np.nan or -9999.0.
                                         Note: NaNs in the input are treated as 0 for summation.
                                         This sets the NoData flag in the output TIF.
-    """
+    '''
     try:
         print(f"Opening NetCDF file: {netcdf_filepath} with chunks='auto'")
         # Use chunks='auto' for dask-backed arrays, efficient for large files
@@ -61,7 +69,7 @@ def sum_netcdf_to_tif(
 
         _crs = pyproj.CRS(xr_dataset['spatial_ref'].crs_wkt).to_epsg()
         xr_dataset = xr_dataset.rio.write_crs(_crs)
-        
+
         if variable_name not in xr_dataset.data_vars:
             available_vars = list(xr_dataset.data_vars.keys())
             raise ValueError(
@@ -77,7 +85,7 @@ def sum_netcdf_to_tif(
                 f"Stack dimension '{stack_dimension_name}' not found for variable '{variable_name}'.\n"
                 f"Available dimensions are: {available_dims}"
             )
-        
+
         print(f"Summing data variable '{variable_name}' along dimension '{stack_dimension_name}'...")
         # skipna=True: NaNs will be treated as 0 in the sum.
         # If all values along the stack_dimension are NaN for a pixel, the sum will be 0.
@@ -126,16 +134,6 @@ def sum_netcdf_to_tif(
             print("Closed NetCDF file.")
 
 def _calculate_weighted_raster_centroid_rasterio(raster_path: str) -> tuple:
-    """
-    Calculates the centroid of a raster weighted by its cell values.
-
-    Args:
-        raster_path (str): Path to the input GeoTIFF raster file.
-
-    Returns:
-        tuple: (centroid_x, centroid_y) in the raster's CRS,
-            or (None, None) if the sum of weights is zero (e.g., all NoData or all zeros).
-    """
     try:
         with rio.open(raster_path) as src:
             # Read the raster data as a NumPy array
@@ -187,7 +185,7 @@ def _calculate_weighted_raster_centroid_rasterio(raster_path: str) -> tuple:
             # Assuming no rotation (transform.b and transform.d are 0)
             # which is common for GeoTIFFs.
             # If rotation exists, the formula is more complex, but rasterio's transform handles it.
-            
+
             # Get arrays of x and y coordinates for each pixel center
             # This uses the affine transform correctly for all pixels
             x_coords, y_coords = rio.transform.xy(transform, rows, cols, offset='center')
@@ -203,39 +201,29 @@ def _calculate_weighted_raster_centroid_rasterio(raster_path: str) -> tuple:
             # Calculate centroid coordinates
             centroid_x = weighted_x_sum / sum_of_weights
             centroid_y = weighted_y_sum / sum_of_weights
-            
+
             print(f"Raster CRS: {src.crs}")
-            return centroid_x, centroid_y
+            return centroid_x, centroid_y, sum_of_weights
 
     except rio.errors.RasterioIOError as e:
         print(f"Error opening or reading raster file: {e}")
-        return None, None
+        return None, None, None
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        return None, None
+        return None, None, None
 
 # xarray (fastest)
 def _calculate_weighted_raster_centroid_xarray(raster_path: str) -> tuple:
-    """
-    Calculates the centroid of a raster weighted by its cell values using xarray.
-
-    Args:
-        raster_path (str): Path to the input GeoTIFF raster file.
-
-    Returns:
-        tuple: (centroid_x, centroid_y) in the raster's CRS,
-            or (None, None) if the sum of weights is zero.
-    """
     try:
         # Open the raster using rioxarray, which returns an xarray.DataArray
         # masked=True will convert NoData values to NaN
         rds = rxr.open_rasterio(raster_path, masked=True, default_name="raster_values")
-        
+
         # If it's a multi-band raster, select the first band or specify
         # For this example, assume single band or use the first.
         # .squeeze() removes dimensions of size 1 (like 'band' if only one band)
         data_array = rds.squeeze(drop=True) # drop=True removes the coord too
-        
+
         # Ensure data_array is 2D (y, x)
         if data_array.ndim > 2:
             # This might happen if squeeze didn't remove all extra dims,
@@ -250,7 +238,7 @@ def _calculate_weighted_raster_centroid_xarray(raster_path: str) -> tuple:
                 for dim_name in data_array.dims:
                     if dim_name not in ('y', 'x', data_array.rio.x_dim, data_array.rio.y_dim):
                         data_array = data_array.isel({dim_name: 0})
-            
+
             if data_array.ndim > 2: # Check again
                 raise ValueError(f"Could not reduce DataArray to 2D. Dimensions: {data_array.dims}")
 
@@ -273,47 +261,47 @@ def _calculate_weighted_raster_centroid_xarray(raster_path: str) -> tuple:
         # These are 1D coordinate arrays. We need 2D arrays matching the data shape.
         # We can achieve this by broadcasting or by using xr.broadcast.
         # Alternatively, and more simply, xarray allows direct multiplication:
-        
+
         # Weighted sum for x and y coordinates
         # (weights * data_array.x) will broadcast data_array.x across the y dimension
         # then sum over both x and y dimensions.
         weighted_x_sum = (weights * data_array[data_array.rio.x_dim]).sum()
         weighted_y_sum = (weights * data_array[data_array.rio.y_dim]).sum()
-        
+
         # Calculate centroid coordinates
         centroid_x = (weighted_x_sum / sum_of_weights).item()
         centroid_y = (weighted_y_sum / sum_of_weights).item()
 
         print(f"Raster CRS (from xarray): {data_array.rio.crs}")
-        return centroid_x, centroid_y
+        return centroid_x, centroid_y, sum_of_weights.item()
 
     except Exception as e: # More general exception for xarray/rioxarray specific issues
         print(f"An unexpected error occurred with xarray: {e}")
-        return None, None
+        return None, None, None
 
 #%%
 def calculate_weighted_raster_centroid(raster_path: str, backend: Literal['rasterio', 'xarray']='xarray') -> tuple:
-    """
-    Calculates the centroid of a raster weighted by its cell values using xarray.
+    '''
+    Calculates the centroid of a raster weighted by its cell values. Also, provides the total of all cell values.
 
     Args:
         raster_path (str): Path to the input GeoTIFF raster file.
+        backend (Literal[&#39;rasterio&#39;, &#39;xarray&#39;], optional): Backend to use. Defaults to 'xarray'.
 
     Returns:
-        tuple: (centroid_x, centroid_y) in the raster's CRS,
-            or (None, None) if the sum of weights is zero.
-    """
+        tuple: (centroid_x, centroid_y) in the raster's CRS, or (None, None) if the sum of weights is zero (e.g., all NoData or all zeros).
+    '''
     match backend:
         case 'rasterio':
             return _calculate_weighted_raster_centroid_rasterio(raster_path)
         case 'xarray':
             return _calculate_weighted_raster_centroid_xarray(raster_path)
         case _:
-            pass # Deal with this (throw error? use xarray? return null values?)            
+            pass # Deal with this (throw error? use xarray? return null values?)
 
 #%%
-def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_output='storm_catalogue'):
-    '''Preprocess storm data. This creates a tif of accumulated rasters and a pickle file with their centroids within the working folder.
+def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_output='storm_catalogue') -> None:
+    '''Preprocess storm data. This creates a tif of accumulated rasters and a pickle file with their centroids within 'path_output'.
 
     Args:
         folder_storms (str): Folder path containing the storm nc files.
@@ -322,32 +310,33 @@ def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_
     '''
     # Get list of nc files
     v_file_storm = get_files_pathlib(folder_storms)
-    
+
     # Create accumulated raster
     path_storm = pathlib.Path(path_output)
     if not path_storm.exists():
         path_storm.mkdir()
     if not (path_storm/'tifs').exists():
         (path_storm/'tifs').mkdir()
-    
+
     for _file_storm in v_file_storm:
         sum_netcdf_to_tif(_file_storm, variable_name=nc_data_name, output_tif_filepath=path_storm/f'tifs/{_file_storm.stem}.tif')
-    
+
     # Calculate storm centroids
     df_storms = pd.DataFrame()
     for _f in (path_storm/'tifs').glob('*.tif'):
         _centroid = calculate_weighted_raster_centroid(_f)
-    
+
         _df_storms = pd.DataFrame(dict(
             name = [_f.stem],
             path = [_f],
             x = [_centroid[0]],
-            y = [_centroid[1]]
+            y = [_centroid[1]],
+            total = [_centroid[2]]
         ))
-    
+
         df_storms = pd.concat([df_storms, _df_storms], ignore_index=True)
-    
+
     # Save pkl file
     df_storms.to_pickle(path_storm/'catalogue.pkl')
-    
+
 #endregion -----------------------------------------------------------------------------------------

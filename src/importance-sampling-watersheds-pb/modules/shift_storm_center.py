@@ -2,7 +2,8 @@
 
 #%%
 import geopandas as gpd
-import pandas as pd
+
+import xarray as xr
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
@@ -24,7 +25,17 @@ def shift_gdf(gdf: gpd.GeoDataFrame, x_del: float, y_del: float) -> gpd.GeoDataF
     return gdf_shifted
 
 #%%
-def shift_storm(xr_dataset, x_del: float, y_del: float):
+def shift_storm(xr_dataset: xr.Dataset, x_del: float, y_del: float) -> xr.Dataset:
+    '''Shift a storm raster in x and y directions.
+
+    Args:
+        xr_dataset (xr.Dataset): xarray dataset of storm raster.
+        x_del (float): Shift in x direction.
+        y_del (float): Shift in y direction.
+
+    Returns:
+        xr.Dataset: Shifted xarray dataset of storm raster.
+    '''
     xr_dataset = xr_dataset.copy()
     xr_dataset_shifted = xr_dataset.assign_coords({
         "x": xr_dataset.x + x_del,
