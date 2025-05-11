@@ -14,8 +14,8 @@ import geopandas as gpd
 #region Modules
 
 #%%
-from compute_raster_stats import sum_raster_values_in_polygon
-from shift_storm_center import shift_gdf
+from modules.compute_raster_stats import sum_raster_values_in_polygon
+from modules.shift_storm_center import shift_gdf
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions

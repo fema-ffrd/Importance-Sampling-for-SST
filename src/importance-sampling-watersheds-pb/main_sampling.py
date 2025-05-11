@@ -26,12 +26,12 @@ from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_
 #%%
 if __name__ == '__main__':
     #%% Set working folder
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py')
+    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
-    path_storm = pathlib.Path('temp_storm_catalogue_3')
-    path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\subham_sampling\example_files\watershed_18020126.geojson"
-    path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\subham_sampling\example_files\domain.geojson"
+    path_storm = pathlib.Path('storm_catalogue_trinity')
+    path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+    path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
     
     #%% Read storm catalogue
     df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
@@ -50,23 +50,31 @@ if __name__ == '__main__':
     v_domain_stats = get_sp_stats(sp_domain)
     
     #%% Set distribution for x and y
-    dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
-    dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
+    # dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
+    # dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
     
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
     
     #%% Set number of simulations and get storm samples
-    n_sim_mc_0 = 10_000
-    n_sim_is_1 = 1_000
+    n_sim_mc_0 = 1_000_000
+    n_sim_is_1 = 100_000
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
     df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
     df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
+
+    df_storm_sample_mc_0.to_pickle('df_storm_sample_mc_0.pkl')
+    df_storm_sample_mc_1.to_pickle('df_storm_sample_mc_1.pkl')
+    df_storm_sample_is_1.to_pickle('df_storm_sample_is_1.pkl')
 
     #%% Run simulations and get depths
     df_depths_mc_0 = compute_depths(df_storm_sample_mc_0, sp_watershed)
     df_depths_mc_1 = compute_depths(df_storm_sample_mc_1, sp_watershed)
     df_depths_is_1 = compute_depths(df_storm_sample_is_1, sp_watershed)
+
+    df_depths_mc_0.to_pickle('df_depths_mc_0.pkl')
+    df_depths_mc_1.to_pickle('df_depths_mc_1.pkl')
+    df_depths_is_1.to_pickle('df_depths_is_1.pkl')
 
     #%% Print some stats about the simulations
     print_sim_stats(df_depths_mc_0)
@@ -129,6 +137,28 @@ if __name__ == '__main__':
     )
     print(g)
 
+
+
+#%%
+n_sim_is = 100_000
+
+# mult_std = 1.2
+# df_storm_sample_is = df_storm_sample_is_1.copy()
+# df_depths_is = df_depths_is_1.copy()
+
+for mult_std in [0.25, 0.5, 0.75, 1, 1.5]:
+    print (f'Running for mult_std = {mult_std}')
+    dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
+    dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
+
+    df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+    df_storm_sample_is.to_pickle(f'df_storm_sample_is_std{mult_std}.pkl')
+
+    df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+    df_depths_is.to_pickle(f'df_depths_is_std{mult_std}.pkl')
+
 #endregion -----------------------------------------------------------------------------------------
 #region Tests
 
@@ -181,3 +211,5 @@ if __name__ == '__main__':
 # )
 
 #endregion -----------------------------------------------------------------------------------------
+
+# %%
