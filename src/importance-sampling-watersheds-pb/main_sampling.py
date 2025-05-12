@@ -27,9 +27,11 @@ from modules.distributions import TruncatedGeneralizedNormal
 #%%
 if __name__ == '__main__':
     #%% Set working folder
+    # pls UPDATE this: folder to save outputs
     os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
+    # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
     path_storm = pathlib.Path('storm_catalogue_trinity')
     path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
     path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
@@ -51,6 +53,7 @@ if __name__ == '__main__':
     v_domain_stats = get_sp_stats(sp_domain)
     
     #%% Set distribution for x and y
+    # pls UPDATE this: distribution details
     # dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
     # dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
     
@@ -58,6 +61,7 @@ if __name__ == '__main__':
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
     
     #%% Set number of simulations and get storm samples
+    # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc_0 = 1_000_000
     n_sim_is_1 = 100_000
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
@@ -79,7 +83,9 @@ if __name__ == '__main__':
 
 
 
+
     #%% Truncated Normal Distribution
+    # pls UPDATE this: standard deviations for importance sampling with TruncNorm
     n_sim_is = 100_000
 
     for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
@@ -96,6 +102,7 @@ if __name__ == '__main__':
         df_depths_is.to_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
 
     #%% Truncated Generalized Normal Distribution
+    # pls UPDATE this: beta values for importance sampling with TruncGeoNorm
     n_sim_is = 100_000
 
     for beta in [5, 10]:
@@ -125,11 +132,6 @@ if __name__ == '__main__':
 
 
 
-
-
-
-
-
     #%% Read number of simulations
     n_sim_mc_0 = 1_000_000
     n_sim_is_1 = 100_000
@@ -142,6 +144,7 @@ if __name__ == '__main__':
     df_depths_mc_1 = pd.read_pickle('df_depths_mc_1.pkl')
 
     #%% Read IS Results
+    # pls UPDATE this: which distribution/parameter combo to use
     # choice_dist = 'TruncNorm'
     # choice_param_value = 0.25
     # choice_param_name = 'std'
