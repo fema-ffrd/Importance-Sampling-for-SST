@@ -35,7 +35,7 @@ class TruncatedGeneralizedNormal:
         if self.cdf_m >= self.cdf_n:
             raise ValueError(f"Lower bound CDF {self.cdf_m} must be less than upper bound CDF {self.cdf_n}. "
                              f"Check bounds [{self.m}, {self.n}] relative to distribution loc={self.loc}, scale={self.scale}.")
-        
+
         self.normalization_factor = self.cdf_n - self.cdf_m
         if self.normalization_factor < 1e-9: # Avoid division by zero or tiny numbers
              print(f"Warning: Normalization factor is very small ({self.normalization_factor}). "
@@ -45,9 +45,9 @@ class TruncatedGeneralizedNormal:
         v = np.asarray(v)
         # PDF is 0 outside the truncation bounds
         is_within_bounds = (v >= self.m) & (v <= self.n)
-        
+
         pdf_values = np.zeros_like(v, dtype=float)
-        
+
         if np.any(is_within_bounds):
             # Calculate PDF for values within bounds
             untruncated_pdf_values = self.untruncated_dist.pdf(v[is_within_bounds])
@@ -66,7 +66,7 @@ class TruncatedGeneralizedNormal:
         # For v > n, CDF is 1
         past_upper_bound = v > self.n
         cdf_values[past_upper_bound] = 1.0
-        
+
         # For m <= v <= n
         within_bounds = (v >= self.m) & (v <= self.n)
         if np.any(within_bounds):
@@ -87,7 +87,7 @@ class TruncatedGeneralizedNormal:
     def rvs(self, size=1):
         # Generate uniform samples in the range [CDF(m), CDF(n)]
         u_scaled = np.random.uniform(low=self.cdf_m, high=self.cdf_n, size=size)
-        
+
         # Use the PPF (inverse CDF) of the untruncated distribution
         return self.untruncated_dist.ppf(u_scaled)
 
@@ -98,7 +98,7 @@ class TruncatedGeneralizedNormal:
         integrand = lambda v: v * self.pdf(v)
         mean_val, _ = quad(integrand, self.m, self.n, limit=100) # Increased limit for potentially tricky integrals
         return mean_val
-    
+
     def std(self):
         # Numerical integration for variance, then sqrt for std
         # Var[X] = E[X^2] - (E[X])^2

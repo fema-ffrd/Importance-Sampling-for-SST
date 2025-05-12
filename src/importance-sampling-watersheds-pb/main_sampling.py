@@ -35,31 +35,31 @@ if __name__ == '__main__':
     path_storm = pathlib.Path('storm_catalogue_trinity')
     path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
     path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
-    
+
     #%% Read storm catalogue
     df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
     # df_storms = df_storms.iloc[[0]] # Only choose one storm from the catalogue for constrained analysis
-    
+
     #%% Read watershed and domain
     sp_watershed = gpd.read_file(path_sp_watershed)
     sp_domain = gpd.read_file(path_sp_domain)
-    
+
     #%% Match crs of watershed and domain to precipitation raster
     sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
     sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
-    
+
     #%% Get polygon info (bounds, centroids, ranges)
     v_watershed_stats = get_sp_stats(sp_watershed)
     v_domain_stats = get_sp_stats(sp_domain)
-    
+
     #%% Set distribution for x and y
     # pls UPDATE this: distribution details
     # dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
     # dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
-    
+
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
-    
+
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc_0 = 1_000_000
@@ -169,7 +169,7 @@ if __name__ == '__main__':
     g = \
     (pn.ggplot(df_storm_sample_is_1, pn.aes(x='x_sampled', y='y_sampled'))
         + pn.geom_bin2d(
-            # bins=(20, 20), 
+            # bins=(20, 20),
             # drop=True by default, which means bins with zero count are not drawn
             # show_legend=True by default for the fill scale
         )
@@ -183,7 +183,7 @@ if __name__ == '__main__':
         # + pn.scale_fill_continuous(low="lightblue", high="darkblue", name="Count")
         # + pn.scale_fill_cmap(cmap_name="cividis", name="Count")
         # from plotnine.scales import scale_fill_distiller
-        + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark    
+        + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark
         + pn.labs(
             title=f"Distribution of sampled points",
             x="x samples",

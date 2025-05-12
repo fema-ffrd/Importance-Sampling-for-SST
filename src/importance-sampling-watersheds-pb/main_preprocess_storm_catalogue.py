@@ -14,7 +14,7 @@ from modules.preprocess_storm_catalogue import preprocess_storm_catalogue
 
 #%%
 if __name__ == '__main__':
-    #%% Set working folder 
+    #%% Set working folder
     # pls UPDATE this: folder to save outputs
     os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # nc_data_name = 'APCP_surface'
     folder_storms = r'D:\FEMA Innovations\SO3.1\Py\Trinity\nc'
     nc_data_name = 'band_data'
-    
+
     #%% Preprocess the nc files, save storm catalogue to "path_storm"
     # pls UPDATE this: name for catalogue folder
     path_storm = 'storm_catalogue_trinity'
