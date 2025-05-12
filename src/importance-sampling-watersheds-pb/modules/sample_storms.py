@@ -26,7 +26,6 @@ def truncnorm_params(mean: float, std_dev: float, lower: float, upper: float) ->
 
     Returns:
         dict: A dictionary containing the parameters 'a', 'b', 'loc', and 'scale' for the truncated normal distribution.
-
     '''
     d = dict(
         a = (lower - mean) / std_dev,

@@ -26,6 +26,7 @@ from modules.distributions import TruncatedGeneralizedNormal
 
 #%%
 if __name__ == '__main__':
+
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
     os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
@@ -41,6 +42,7 @@ if __name__ == '__main__':
     # df_storms = df_storms.iloc[[0]] # Only choose one storm from the catalogue for constrained analysis
 
     #%% Read watershed and domain
+
     sp_watershed = gpd.read_file(path_sp_watershed)
     sp_domain = gpd.read_file(path_sp_domain)
 
@@ -60,10 +62,17 @@ if __name__ == '__main__':
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
 
+
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc_0 = 1_000_000
     n_sim_is_1 = 100_000
+
+    
+    #%%
+#     n_sim_mc_0 = 1000
+#     n_sim_is_1 = 100
+
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
     df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
     # df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
@@ -220,8 +229,10 @@ if __name__ == '__main__':
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
+    
     # print(g)
     g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+
 
 #endregion -----------------------------------------------------------------------------------------
 
