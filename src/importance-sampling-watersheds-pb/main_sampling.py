@@ -77,58 +77,62 @@ if __name__ == '__main__':
     df_depths_mc_1.to_pickle('df_depths_mc_1.pkl')
     # df_depths_is_1.to_pickle('df_depths_is_1.pkl')
 
-#%% Truncated Normal Distribution
-n_sim_is = 100_000
-
-for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
-    print (f'Running for mult_std = {mult_std}')
-    dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
-    dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
-
-    df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
-
-    df_storm_sample_is.to_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
-
-    df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
-
-    df_depths_is.to_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
-
-#%% Truncated Generalized Normal Distribution
-n_sim_is = 100_000
-
-for beta in [5, 10]:
-    print (f'Running for beta = {beta}')
-    dist_x = TruncatedGeneralizedNormal(
-        beta=beta,
-        loc=v_watershed_stats.x,
-        scale=v_watershed_stats.range_x,
-        lower_bound=v_domain_stats.minx,
-        upper_bound=v_domain_stats.maxx,
-    )
-    dist_y = TruncatedGeneralizedNormal(
-        beta=beta,
-        loc=v_watershed_stats.y,
-        scale=v_watershed_stats.range_y,
-        lower_bound=v_domain_stats.miny,
-        upper_bound=v_domain_stats.maxy,
-    )
-
-    df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
-
-    df_storm_sample_is.to_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
-
-    df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
-
-    df_depths_is.to_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
 
+    #%% Truncated Normal Distribution
+    n_sim_is = 100_000
 
+    for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
+        print (f'Running for mult_std = {mult_std}')
+        dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
+        dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
 
+        df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+        df_storm_sample_is.to_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+
+        df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+        df_depths_is.to_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+
+    #%% Truncated Generalized Normal Distribution
+    n_sim_is = 100_000
+
+    for beta in [5, 10]:
+        print (f'Running for beta = {beta}')
+        dist_x = TruncatedGeneralizedNormal(
+            beta=beta,
+            loc=v_watershed_stats.x,
+            scale=v_watershed_stats.range_x,
+            lower_bound=v_domain_stats.minx,
+            upper_bound=v_domain_stats.maxx,
+        )
+        dist_y = TruncatedGeneralizedNormal(
+            beta=beta,
+            loc=v_watershed_stats.y,
+            scale=v_watershed_stats.range_y,
+            lower_bound=v_domain_stats.miny,
+            upper_bound=v_domain_stats.maxy,
+        )
+
+        df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+        df_storm_sample_is.to_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+
+        df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+        df_depths_is.to_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
 
 
 
 
+
+
+
+    #%% Read number of simulations
+    n_sim_mc_0 = 1_000_000
+    n_sim_is_1 = 100_000
 
     #%% Read Monte Carlo Results
     df_storm_sample_mc_0 = pd.read_pickle('df_storm_sample_mc_0.pkl')
@@ -138,13 +142,21 @@ for beta in [5, 10]:
     df_depths_mc_1 = pd.read_pickle('df_depths_mc_1.pkl')
 
     #%% Read IS Results
-    mult_std = 1.5
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+    # choice_dist = 'TruncNorm'
+    # choice_param_value = 0.25
+    # choice_param_name = 'std'
+    choice_dist = 'TruncGenNorm'
+    choice_param_value = 5
+    choice_param_name = 'beta'
 
-    beta = 10
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{mult_std}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{mult_std}.pkl')
+    if choice_dist == 'TruncNorm':
+        mult_std = choice_param_value
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+    else:
+        beta = choice_param_value
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
     #%% Print some stats about the simulations
     print_sim_stats(df_depths_mc_0)
@@ -177,7 +189,8 @@ for beta in [5, 10]:
         )
         + pn.theme_bw()
     )
-    print(g)
+    # print(g)
+    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -205,8 +218,8 @@ for beta in [5, 10]:
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
-    print(g)
-
+    # print(g)
+    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
 

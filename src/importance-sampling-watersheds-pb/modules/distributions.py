@@ -9,7 +9,16 @@ from scipy.stats import gennorm
 
 #%% Truncated Generalized Normal Distribution
 class TruncatedGeneralizedNormal:
-    def __init__(self, beta, loc, scale, lower_bound, upper_bound):
+    '''A truncated generalized normal distribution.
+
+    Args:
+        loc (float): Location Parameter.
+        scale (float): Scale Parameter.
+        beta (float): Shape Parameter.
+        lower_bound (float): Lower truncation bound.
+        upper_bound (float): Upper truncation bound.
+    '''
+    def __init__(self, beta: float, loc: float, scale: float, lower_bound: float, upper_bound: float):
         self.beta = beta
         self.loc = loc
         self.scale = scale
@@ -31,7 +40,6 @@ class TruncatedGeneralizedNormal:
         if self.normalization_factor < 1e-9: # Avoid division by zero or tiny numbers
              print(f"Warning: Normalization factor is very small ({self.normalization_factor}). "
                    f"The truncation interval [{self.m}, {self.n}] might be in the extreme tails of the base distribution.")
-
 
     def pdf(self, v):
         v = np.asarray(v)
