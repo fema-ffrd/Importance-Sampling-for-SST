@@ -62,85 +62,22 @@ if __name__ == '__main__':
     n_sim_is_1 = 100_000
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
     df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
-    df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
+    # df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
 
     df_storm_sample_mc_0.to_pickle('df_storm_sample_mc_0.pkl')
     df_storm_sample_mc_1.to_pickle('df_storm_sample_mc_1.pkl')
-    df_storm_sample_is_1.to_pickle('df_storm_sample_is_1.pkl')
+    # df_storm_sample_is_1.to_pickle('df_storm_sample_is_1.pkl')
 
     #%% Run simulations and get depths
     df_depths_mc_0 = compute_depths(df_storm_sample_mc_0, sp_watershed)
     df_depths_mc_1 = compute_depths(df_storm_sample_mc_1, sp_watershed)
-    df_depths_is_1 = compute_depths(df_storm_sample_is_1, sp_watershed)
+    # df_depths_is_1 = compute_depths(df_storm_sample_is_1, sp_watershed)
 
     df_depths_mc_0.to_pickle('df_depths_mc_0.pkl')
     df_depths_mc_1.to_pickle('df_depths_mc_1.pkl')
-    df_depths_is_1.to_pickle('df_depths_is_1.pkl')
+    # df_depths_is_1.to_pickle('df_depths_is_1.pkl')
 
-    #%% Print some stats about the simulations
-    print_sim_stats(df_depths_mc_0)
-    print_sim_stats(df_depths_mc_1)
-    print_sim_stats(df_depths_is_1)
-
-    #%% Get table of frequency curves
-    df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
-    df_freq_curve_mc_1 = get_df_freq_curve(df_depths_mc_1.depth, df_depths_mc_1.prob)
-    df_freq_curve_is_1 = get_df_freq_curve(df_depths_is_1.depth, df_depths_is_1.prob)
-
-    #%% Plot frequency curves
-    g = \
-    (pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
-        + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
-        + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is_1/1000}k)"'), size=0.1)
-        + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
-        + pn.scale_x_log10()
-        + pn.labs(
-            x = 'Exceedence Probability',
-            y = 'Rainfall Depth',
-            title = 'Basic Monte Carlo vs Importance Sampling'
-        )
-        + pn.theme_bw()
-        + pn.theme(
-            title = pn.element_text(hjust = 0.5),
-            # legend_position = 'bottom',
-            legend_title = pn.element_blank(),
-            legend_key = pn.element_blank(),
-            axis_title_y = pn.element_text(ha = 'left'),
-        )
-    )
-    print(g)
-
-    #%% Distribution of sampled points
-    g = \
-    (pn.ggplot(df_storm_sample_is_1, pn.aes(x='x_sampled', y='y_sampled'))
-        + pn.geom_bin2d(
-            # bins=(20, 20), 
-            # drop=True by default, which means bins with zero count are not drawn
-            # show_legend=True by default for the fill scale
-        )
-        + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
-        + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
-        + pn.coord_cartesian(
-            xlim=(v_domain_stats.minx, v_domain_stats.maxx),
-            ylim=(v_domain_stats.miny, v_domain_stats.maxy),
-            # expand=False # prevents Plotnine from adding padding around limits
-        )
-        # + pn.scale_fill_continuous(low="lightblue", high="darkblue", name="Count")
-        # + pn.scale_fill_cmap(cmap_name="cividis", name="Count")
-        # from plotnine.scales import scale_fill_distiller
-        + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark    
-        + pn.labs(
-            title=f"Distribution of sampled points",
-            x="x samples",
-            y="y samples"
-        )
-        + pn.theme_bw()
-    )
-    print(g)
-
-
-
-#%%
+#%% Truncated Normal Distribution
 n_sim_is = 100_000
 
 for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
@@ -156,10 +93,7 @@ for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
 
     df_depths_is.to_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
 
-
-
-
-#%%
+#%% Truncated Generalized Normal Distribution
 n_sim_is = 100_000
 
 for beta in [5, 10]:
@@ -196,38 +130,83 @@ for beta in [5, 10]:
 
 
 
-#%%
-mult_std = 1.5
-df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_std{mult_std}.pkl')
-df_depths_is_1 = pd.read_pickle(f'df_depths_is_std{mult_std}.pkl')
+    #%% Read Monte Carlo Results
+    df_storm_sample_mc_0 = pd.read_pickle('df_storm_sample_mc_0.pkl')
+    df_storm_sample_mc_1 = pd.read_pickle('df_storm_sample_mc_1.pkl')
 
-#%%
-g = \
-(pn.ggplot(df_storm_sample_is_1, pn.aes(x='x_sampled', y='y_sampled'))
-    + pn.geom_bin2d(
-        # bins=(20, 20), 
-        # drop=True by default, which means bins with zero count are not drawn
-        # show_legend=True by default for the fill scale
+    df_depths_mc_0 = pd.read_pickle('df_depths_mc_0.pkl')
+    df_depths_mc_1 = pd.read_pickle('df_depths_mc_1.pkl')
+
+    #%% Read IS Results
+    mult_std = 1.5
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+
+    beta = 10
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{mult_std}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{mult_std}.pkl')
+
+    #%% Print some stats about the simulations
+    print_sim_stats(df_depths_mc_0)
+    print_sim_stats(df_depths_mc_1)
+    print_sim_stats(df_depths_is_1)
+
+    #%% Distribution of sampled points
+    g = \
+    (pn.ggplot(df_storm_sample_is_1, pn.aes(x='x_sampled', y='y_sampled'))
+        + pn.geom_bin2d(
+            # bins=(20, 20), 
+            # drop=True by default, which means bins with zero count are not drawn
+            # show_legend=True by default for the fill scale
+        )
+        + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
+        + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
+        + pn.coord_cartesian(
+            xlim=(v_domain_stats.minx, v_domain_stats.maxx),
+            ylim=(v_domain_stats.miny, v_domain_stats.maxy),
+            # expand=False # prevents Plotnine from adding padding around limits
+        )
+        # + pn.scale_fill_continuous(low="lightblue", high="darkblue", name="Count")
+        # + pn.scale_fill_cmap(cmap_name="cividis", name="Count")
+        # from plotnine.scales import scale_fill_distiller
+        + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark    
+        + pn.labs(
+            title=f"Distribution of sampled points",
+            x="x samples",
+            y="y samples"
+        )
+        + pn.theme_bw()
     )
-    + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
-    + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
-    + pn.coord_cartesian(
-        xlim=(v_domain_stats.minx, v_domain_stats.maxx),
-        ylim=(v_domain_stats.miny, v_domain_stats.maxy),
-        # expand=False # prevents Plotnine from adding padding around limits
+    print(g)
+
+    #%% Get table of frequency curves
+    df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
+    df_freq_curve_mc_1 = get_df_freq_curve(df_depths_mc_1.depth, df_depths_mc_1.prob)
+    df_freq_curve_is_1 = get_df_freq_curve(df_depths_is_1.depth, df_depths_is_1.prob)
+
+    #%% Plot frequency curves
+    g = \
+    (pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
+        + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
+        + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is_1/1000}k)"'), size=0.1)
+        + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
+        + pn.scale_x_log10()
+        + pn.labs(
+            x = 'Exceedence Probability',
+            y = 'Rainfall Depth',
+            title = 'Basic Monte Carlo vs Importance Sampling'
+        )
+        + pn.theme_bw()
+        + pn.theme(
+            title = pn.element_text(hjust = 0.5),
+            # legend_position = 'bottom',
+            legend_title = pn.element_blank(),
+            legend_key = pn.element_blank(),
+            axis_title_y = pn.element_text(ha = 'left'),
+        )
     )
-    # + pn.scale_fill_continuous(low="lightblue", high="darkblue", name="Count")
-    # + pn.scale_fill_cmap(cmap_name="cividis", name="Count")
-    # from plotnine.scales import scale_fill_distiller
-    + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark    
-    + pn.labs(
-        title=f"Distribution of sampled points",
-        x="x samples",
-        y="y samples"
-    )
-    + pn.theme_bw()
-)
-print(g)
+    print(g)
+
 
 #endregion -----------------------------------------------------------------------------------------
 
