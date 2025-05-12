@@ -19,6 +19,7 @@ import geopandas as gpd
 from modules.compute_raster_stats import match_crs_to_raster
 from modules.sample_storms import get_sp_stats, truncnorm_params, sample_storms
 from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_curve
+from modules.distributions import TruncatedGeneralizedNormal
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -142,74 +143,91 @@ if __name__ == '__main__':
 #%%
 n_sim_is = 100_000
 
-# mult_std = 1.2
-# df_storm_sample_is = df_storm_sample_is_1.copy()
-# df_depths_is = df_depths_is_1.copy()
-
-for mult_std in [0.25, 0.5, 0.75, 1, 1.5]:
+for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
     print (f'Running for mult_std = {mult_std}')
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
 
     df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
 
-    df_storm_sample_is.to_pickle(f'df_storm_sample_is_std{mult_std}.pkl')
+    df_storm_sample_is.to_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
 
     df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
 
-    df_depths_is.to_pickle(f'df_depths_is_std{mult_std}.pkl')
+    df_depths_is.to_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+
+
+
+
+#%%
+n_sim_is = 100_000
+
+for beta in [5, 10]:
+    print (f'Running for beta = {beta}')
+    dist_x = TruncatedGeneralizedNormal(
+        beta=beta,
+        loc=v_watershed_stats.x,
+        scale=v_watershed_stats.range_x,
+        lower_bound=v_domain_stats.minx,
+        upper_bound=v_domain_stats.maxx,
+    )
+    dist_y = TruncatedGeneralizedNormal(
+        beta=beta,
+        loc=v_watershed_stats.y,
+        scale=v_watershed_stats.range_y,
+        lower_bound=v_domain_stats.miny,
+        upper_bound=v_domain_stats.maxy,
+    )
+
+    df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+    df_storm_sample_is.to_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+
+    df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+    df_depths_is.to_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
+
+
+
+
+
+
+
+
+
+
+#%%
+mult_std = 1.5
+df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_std{mult_std}.pkl')
+df_depths_is_1 = pd.read_pickle(f'df_depths_is_std{mult_std}.pkl')
+
+#%%
+g = \
+(pn.ggplot(df_storm_sample_is_1, pn.aes(x='x_sampled', y='y_sampled'))
+    + pn.geom_bin2d(
+        # bins=(20, 20), 
+        # drop=True by default, which means bins with zero count are not drawn
+        # show_legend=True by default for the fill scale
+    )
+    + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
+    + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
+    + pn.coord_cartesian(
+        xlim=(v_domain_stats.minx, v_domain_stats.maxx),
+        ylim=(v_domain_stats.miny, v_domain_stats.maxy),
+        # expand=False # prevents Plotnine from adding padding around limits
+    )
+    # + pn.scale_fill_continuous(low="lightblue", high="darkblue", name="Count")
+    # + pn.scale_fill_cmap(cmap_name="cividis", name="Count")
+    # from plotnine.scales import scale_fill_distiller
+    + pn.scale_fill_distiller(type="seq", palette="Greens", direction=1, name="Count") # direction=1 is light to dark    
+    + pn.labs(
+        title=f"Distribution of sampled points",
+        x="x samples",
+        y="y samples"
+    )
+    + pn.theme_bw()
+)
+print(g)
 
 #endregion -----------------------------------------------------------------------------------------
-#region Tests
 
-# #%%
-# #%%
-# (pn.ggplot(df_depths_is_1, mapping=pn.aes(x='depth', y='prob'))
-#     + pn.geom_point(size=0.1)
-# )
-
-# #%%
-# (pn.ggplot(df_freq_curve_is_1, mapping=pn.aes(x='depth', y='prob_exceed'))
-#     + pn.geom_point(size=0.1)
-# )
-
-# #%%
-# # df_prob = df_storm_sample_mc_0.copy()    
-# df_prob = df_storm_sample_is_1.copy()    
-# # df_prob = df_freq_curve_mc_1.copy()    
-# # df_prob = df_freq_curve_is_1.copy()    
-# df_prob = \
-# (df_prob
-#     .assign(depth_bin = lambda _: pd.cut(_.y_sampled, bins = 100))
-#     .groupby('depth_bin')
-#     .agg(prob_count = ('prob', 'size'),
-#          prob_mean = ('prob', 'mean'),
-#          prob_sum = ('prob', 'sum'))
-#     .reset_index()
-#     .assign(depth = lambda _: (_.depth_bin.apply(lambda _x: _x.left).astype(float)+_.depth_bin.apply(lambda _x: _x.right).astype(float))/2)
-# )
-# (pn.ggplot(mapping=pn.aes(x='depth'))
-#     # + pn.geom_point(data=df_prob_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
-#     # + pn.geom_point(data=df_prob_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_mc_1/1000}k)"'), size=0.1)
-#     # + pn.geom_point(data=df_prob, mapping=pn.aes(y='prob_count', color=f'"IS ({n_sim_is_1/1000}k), count"'), size=0.1)
-#     + pn.geom_point(data=df_prob, mapping=pn.aes(y='prob_sum', color=f'"IS ({n_sim_is_1/1000}k), sum"'), size=0.1)
-#     # + pn.geom_point(data=df_prob, mapping=pn.aes(y='prob_mean', color=f'"IS ({n_sim_is_1/1000}k), mean"'), size=0.1)
-#     # + pn.scale_x_log10()
-#     + pn.labs(
-#         x = 'value',
-#         y = 'Probability',
-#         title = 'Basic Monte Carlo vs Importance Sampling'
-#     )
-#     + pn.theme_bw()
-#     + pn.theme(
-#         title = pn.element_text(hjust = 0.5),
-#         # legend_position = 'bottom',
-#         legend_title = pn.element_blank(),
-#         legend_key = pn.element_blank(),
-#         axis_title_y = pn.element_text(ha = 'left'),
-#     )
-# )
-
-#endregion -----------------------------------------------------------------------------------------
-
-# %%
