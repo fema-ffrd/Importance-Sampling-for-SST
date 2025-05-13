@@ -17,9 +17,9 @@ import geopandas as gpd
 
 #%%
 from modules.compute_raster_stats import match_crs_to_raster
-from modules.sample_storms import get_sp_stats, truncnorm_params, sample_storms
+from modules.sample_storms import get_sp_stats, sample_storms
 from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_curve
-from modules.distributions import TruncatedGeneralizedNormal
+from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -144,12 +144,12 @@ if __name__ == '__main__':
 
     #%% Read IS Results
     # pls UPDATE this: which distribution/parameter combo to use
-    # choice_dist = 'TruncNorm'
-    # choice_param_value = 0.25
-    # choice_param_name = 'std'
-    choice_dist = 'TruncGenNorm'
-    choice_param_value = 5
-    choice_param_name = 'beta'
+    choice_dist = 'TruncNorm'
+    choice_param_value = 1.2
+    choice_param_name = 'std'
+    # choice_dist = 'TruncGenNorm'
+    # choice_param_value = 5
+    # choice_param_name = 'beta'
 
     if choice_dist == 'TruncNorm':
         mult_std = choice_param_value
@@ -191,8 +191,8 @@ if __name__ == '__main__':
         )
         + pn.theme_bw()
     )
-    # print(g)
-    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    print(g)
+    # g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -222,6 +222,58 @@ if __name__ == '__main__':
     )
     # print(g)
     g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+
+    # #%%
+    # import numpy as np
+    # from tqdm import tqdm
+    # def get_df_freq_curve(df_depths: pd.DataFrame, n = 1000):
+    #     _depths = df_depths.depth
+    #     _weights = df_depths.weight
+    #     _depth_max = df_depths.depth.max()
+
+    #     v_dep = np.arange(0, _depth_max, _depth_max/n)
+    #     v_prob_exceed = []
+    #     p_bar = tqdm(total=len(v_dep))
+    #     for dep in v_dep:
+    #         prob_exceed = np.mean((_depths >= dep) * _weights)
+    #         v_prob_exceed.append(prob_exceed)
+    #         p_bar.update()
+
+    #     df_freq = pd.DataFrame(dict(
+    #         depth = v_dep,
+    #         prob_exceed = v_prob_exceed,
+    #     ))
+
+    #     return df_freq
+    
+    # #%% Get table of frequency curves
+    # df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0)
+    # df_freq_curve_mc_1 = get_df_freq_curve(df_depths_mc_1)
+    # df_freq_curve_is_1 = get_df_freq_curve(df_depths_is_1)
+
+    # #%% Plot frequency curves
+    # g = \
+    # (pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
+    #     + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
+    #     + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is_1/1000}k)"'), size=0.1)
+    #     + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
+    #     + pn.scale_x_log10()
+    #     + pn.labs(
+    #         x = 'Exceedence Probability',
+    #         y = 'Rainfall Depth',
+    #         title = 'Basic Monte Carlo vs Importance Sampling'
+    #     )
+    #     + pn.theme_bw()
+    #     + pn.theme(
+    #         title = pn.element_text(hjust = 0.5),
+    #         # legend_position = 'bottom',
+    #         legend_title = pn.element_blank(),
+    #         legend_key = pn.element_blank(),
+    #         axis_title_y = pn.element_text(ha = 'left'),
+    #     )
+    # )
+    # print(g)
+    # # g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
 

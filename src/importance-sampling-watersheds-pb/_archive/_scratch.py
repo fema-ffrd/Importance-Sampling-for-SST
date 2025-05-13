@@ -274,7 +274,588 @@ except ValueError as e:
     print(f"Error creating truncated distribution: {e}")
 
 #endregion -----------------------------------------------------------------------------------------
-#region Tests
+#region Tests for Importance Sampling
+
+#%% Imports
+import numpy as np
+import pandas as pd
+from scipy import integrate 
+from scipy.stats import uniform, truncnorm
+from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+import matplotlib.pyplot as plt
+
+#%% Range for x
+x_min = 0
+x_max = 20
+
+#%% Function to calculate y
+def calc(x):
+    return np.where((x >= 5) & (x <= 10), (x**3+4**x), 0)
+
+
+#%% Scalar version for integration
+def calc_scalar(x):
+    if 5 <= x <= 10:
+        return x**3 + 4**x
+    else:
+        return 0
+
+#%% Real expected value of y
+y_exp_real = integrate.quad(calc_scalar, x_min, x_max)[0]/(x_max - x_min)
+print (y_exp_real)
+
+#%% Expected value of y using Monte Carlo simulation
+dist_mc = uniform(loc=x_min, scale=x_max - x_min)
+x_mc = dist_mc.rvs(100_000)
+y_mc = calc(x_mc)
+y_exp_mc = np.mean(y_mc)
+print (y_exp_mc)
+
+#%% Expected value of y using Importance Sampling simulation
+param_std = 0.8
+dist_is = truncnorm(loc=7.5, scale=param_std, a=(x_min-7.5)/param_std, b=(x_max-7.5)/param_std)
+dist_is = truncnorm(**truncnorm_params(7.5, param_std, x_min, x_max))
+x_is = dist_is.rvs(100_000)
+y_is = calc(x_is)
+p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
+q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
+weights = np.where(q > 1e-9, p/q, 0)
+y_exp_is = np.mean(y_is * weights)
+# y_exp = np.mean(y)
+print (y_exp_is)
+
+#%% Probability of exceedence
+y_val = 70_000
+
+prob_exceed_mc = np.mean(y_mc >= y_val)
+
+prob_exceed_is = np.mean((y_is >= y_val) * weights)
+
+print (prob_exceed_mc)
+print (prob_exceed_is)
+
+#endregion -----------------------------------------------------------------------------------------
+#region Tests of Importance Sampling Archive
+
+#%% Imports
+import numpy as np
+import pandas as pd # Not used in this specific script, can be removed
+from scipy import integrate
+from scipy.stats import uniform, truncnorm
+import matplotlib.pyplot as plt # Keep for visualization
+
+#%% Range for x
+x_min = 0
+x_max = 20
+num_samples_mc = 100_000
+num_samples_is = 10_000 # We might need fewer samples for IS to get a good estimate
+
+#%% Function to calculate y
+def calc(x):
+    # Ensure x is a numpy array for vectorized operations
+    x = np.asarray(x)
+    return np.where((x >= 5) & (x <= 10), (x**3 + 4**x), 0)
+
+#%% Real expected value of y
+# p(x) is the PDF of Uniform(x_min, x_max), which is 1/(x_max - x_min)
+pdf_p_x_constant = 1.0 / (x_max - x_min)
+# E[y] = ∫ y(x) * p(x) dx
+integrand_real = lambda x: calc(x) * pdf_p_x_constant
+y_exp_real = integrate.quad(integrand_real, x_min, x_max)[0]
+# Alternatively, as you had (which is also correct):
+# y_exp_real_v2 = integrate.quad(calc, x_min, x_max)[0] / (x_max - x_min)
+print(f"Real expected value of y: {y_exp_real:.6f}")
+
+#%% Expected value of y using standard Monte Carlo simulation
+# Original distribution p(x): Uniform(x_min, x_max)
+p_dist = uniform(loc=x_min, scale=x_max - x_min)
+x_mc = p_dist.rvs(num_samples_mc)
+y_mc = calc(x_mc)
+y_exp_mc = np.mean(y_mc)
+print(f"MC expected value of y ({num_samples_mc} samples): {y_exp_mc:.6f}")
+
+#%% Importance Sampling
+print("\n--- Importance Sampling ---")
+
+# 1. Define the original distribution p(x) (already done as p_dist)
+
+# 2. Define the proposal distribution q(x): Truncated Normal
+mu_q = 7.5  # Mean of the underlying normal
+sigma_q = 1.5 # Standard deviation of the underlying normal (heuristic choice)
+# sigma_q = 2.0 # Another option for sigma
+
+# For truncnorm, 'a' and 'b' are standard deviations from the mean if loc and scale are used for the underlying normal.
+# We want to truncate the normal distribution N(mu_q, sigma_q^2) to the interval [x_min, x_max].
+a_trunc = (x_min - mu_q) / sigma_q  # Lower bound in std devs from mu_q
+b_trunc = (x_max - mu_q) / sigma_q  # Upper bound in std devs from mu_q
+
+q_dist = truncnorm(a=a_trunc, b=b_trunc, loc=mu_q, scale=sigma_q)
+
+# 3. Draw samples from q(x)
+x_is = q_dist.rvs(num_samples_is)
+
+# 4. Calculate y for these samples
+y_is = calc(x_is)
+
+# 5. Calculate importance weights w(x) = p(x) / q(x)
+p_pdf_values = p_dist.pdf(x_is) # PDF of original uniform distribution at sampled points
+q_pdf_values = q_dist.pdf(x_is) # PDF of proposal truncated normal at sampled points
+
+# Avoid division by zero if any q_pdf_value is zero (should not happen for samples from q_dist itself)
+# but good practice if x_is could come from elsewhere or q_dist had zero density regions.
+# In our case, p_pdf_values will be non-zero for x_is in [0,20] and q_pdf_values also.
+weights = np.zeros_like(q_pdf_values)
+# Only calculate weights where q_pdf_values is not zero.
+# And where p_pdf_values is not zero (though for uniform over [0,20] it always is within this range)
+valid_indices = (q_pdf_values > 1e-9) # Check for very small q_pdf_values
+weights[valid_indices] = p_pdf_values[valid_indices] / q_pdf_values[valid_indices]
+
+
+# 6. Calculate the Importance Sampling estimate
+# E_q[y(X) * w(X)]
+y_exp_is = np.mean(y_is * weights)
+print(f"IS expected value of y ({num_samples_is} samples, mu_q={mu_q}, sigma_q={sigma_q}): {y_exp_is:.6f}")
+
+#%%
+# Diagnostic: Effective Sample Size (ESS)
+# A common formula for ESS when weights are not normalized to sum to N
+# is (sum(weights))^2 / sum(weights^2)
+# Or, if we consider normalized weights w_norm = weights / sum(weights): ESS = 1 / sum(w_norm^2)
+if np.sum(weights) > 1e-9: # Avoid division by zero if all weights are tiny
+    ess = (np.sum(weights)**2) / np.sum(weights**2)
+    print(f"Effective Sample Size (ESS): {ess:.2f} (out of {num_samples_is})")
+    # An ESS much smaller than N indicates high variance in weights.
+else:
+    print("Could not calculate ESS (sum of weights is near zero).")
+
+
+#%% Visualization (optional, but helpful)
+fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+
+# Plot 1: PDFs of p(x) and q(x)
+x_plot = np.linspace(x_min, x_max, 500)
+p_plot_pdf = p_dist.pdf(x_plot)
+q_plot_pdf = q_dist.pdf(x_plot)
+
+axes[0].plot(x_plot, p_plot_pdf, label=f'p(x) - Uniform({x_min},{x_max})', color='blue')
+axes[0].plot(x_plot, q_plot_pdf, label=f'q(x) - TruncNorm(μ={mu_q},σ={sigma_q}, trunc=[{x_min},{x_max}])', color='green')
+axes[0].set_title('Original p(x) and Proposal q(x) PDFs')
+axes[0].set_ylabel('Density')
+axes[0].legend()
+axes[0].grid(True)
+
+# Plot 2: Function y(x) and y(x)*p(x)
+y_plot = calc(x_plot)
+axes[1].plot(x_plot, y_plot, label='y(x)', color='red')
+axes[1].plot(x_plot, y_plot * p_plot_pdf, label='y(x) * p(x) (Integrand for E[y])', color='purple', linestyle='--')
+axes[1].set_title('Function y(x) and Integrand y(x)p(x)')
+axes[1].set_ylabel('Value')
+axes[1].legend()
+axes[1].grid(True)
+
+# Plot 3: Sampled points and their weights for IS
+# It's hard to visualize weights directly with y_is, so let's show where samples from q(x) fall
+# And maybe the magnitude of weights as a scatter plot if helpful
+# Scatter plot of IS samples
+# Filter for y_is > 0 to see where the "action" is
+active_is_samples = x_is[y_is > 0]
+active_weights = weights[y_is > 0]
+
+if len(active_is_samples) > 0:
+    sc = axes[2].scatter(active_is_samples, y_is[y_is > 0], c=active_weights, cmap='viridis', s=10, alpha=0.7, label='y_is values (color=weight)')
+    plt.colorbar(sc, ax=axes[2], label='Importance Weight')
+    axes[2].set_title(f'Importance Samples (x_is from q(x)) where y_is > 0')
+else:
+    axes[2].set_title(f'Importance Samples (no y_is > 0 found with {num_samples_is} samples)')
+
+# Overlay where MC samples would fall (uniformly) for comparison density
+# axes[2].hist(x_mc[y_mc > 0], bins=50, density=True, alpha=0.3, label='MC samples (y>0) distribution', color='grey')
+axes[2].set_xlabel('x')
+axes[2].set_ylabel('y_is value')
+axes[2].legend()
+axes[2].grid(True)
+
+
+plt.tight_layout()
+plt.show()
+
+# Further check: where are the largest weights?
+if len(weights)>0:
+    print("\nWeight statistics:")
+    print(f"Min weight: {np.min(weights):.4f}, Max weight: {np.max(weights):.4f}, Mean weight: {np.mean(weights):.4f}, Std weight: {np.std(weights):.4f}")
+    # The mean of weights should theoretically be close to 1 if q(x) is a valid PDF and covers p(x) support
+    # This is because E_q[p(X)/q(X)] = integral (p(x)/q(x)) q(x) dx = integral p(x) dx = 1
+    # However, large variance in weights is a sign of trouble.
+    
+    # Where are the samples from IS concentrated vs where function is non-zero
+    samples_in_5_10_is = np.sum((x_is >= 5) & (x_is <= 10))
+    print(f"Proportion of IS samples in [5, 10]: {samples_in_5_10_is / num_samples_is:.2%} (target region)")
+
+    samples_in_5_10_mc = np.sum((x_mc >= 5) & (x_mc <= 10))
+    print(f"Proportion of MC samples in [5, 10]: {samples_in_5_10_mc / num_samples_mc:.2%} (target region)")
+
+
+
+
+
+#%% Imports
+import numpy as np
+# import pandas as pd # Not used in this specific script, can be removed
+from scipy import integrate
+from scipy.stats import uniform, truncnorm
+import matplotlib.pyplot as plt
+import seaborn as sns # For easier KDE plots and styling
+
+#%% Range for x
+x_min = 0
+x_max = 20
+num_samples_mc = 100_000
+num_samples_is = 10_000 # IS might need fewer samples
+
+#%% Function to calculate y
+def calc(x):
+    x = np.asarray(x)
+    return np.where((x >= 5) & (x <= 10), (x**3 + 4**x), 0)
+
+#%% Real expected value of y (for reference)
+pdf_p_x_constant = 1.0 / (x_max - x_min)
+integrand_real = lambda x_val: calc(x_val) * pdf_p_x_constant
+y_exp_real = integrate.quad(integrand_real, x_min, x_max)[0]
+print(f"Real expected value of y: {y_exp_real:.6f}")
+
+# Probabilities for y=0 and y>0
+prob_y_eq_0 = ((5 - x_min) + (x_max - 10)) / (x_max - x_min)
+prob_y_gt_0 = (10 - 5) / (x_max - x_min)
+print(f"Theoretical P(y=0): {prob_y_eq_0:.4f}")
+print(f"Theoretical P(y>0): {prob_y_gt_0:.4f}")
+
+#%% Standard Monte Carlo
+print("\n--- Standard Monte Carlo ---")
+p_dist = uniform(loc=x_min, scale=x_max - x_min)
+x_mc = p_dist.rvs(num_samples_mc)
+y_mc = calc(x_mc)
+y_exp_mc = np.mean(y_mc)
+print(f"MC expected value of y ({num_samples_mc} samples): {y_exp_mc:.6f}")
+
+# Separate y_mc values that are zero and non-zero
+y_mc_zero = y_mc[y_mc == 0]
+y_mc_nonzero = y_mc[y_mc > 0]
+print(f"MC: Proportion of y=0 samples: {len(y_mc_zero)/len(y_mc):.4f}")
+print(f"MC: Proportion of y>0 samples: {len(y_mc_nonzero)/len(y_mc):.4f}")
+
+
+#%% Importance Sampling
+print("\n--- Importance Sampling ---")
+mu_q = 8.5  # Adjusted mean, since y(x) grows rapidly towards x=10
+sigma_q = 1.5 # Std dev
+a_trunc = (x_min - mu_q) / sigma_q
+b_trunc = (x_max - mu_q) / sigma_q
+q_dist = truncnorm(a=a_trunc, b=b_trunc, loc=mu_q, scale=sigma_q)
+
+x_is = q_dist.rvs(num_samples_is)
+y_is = calc(x_is)
+
+p_pdf_values = p_dist.pdf(x_is)
+q_pdf_values = q_dist.pdf(x_is)
+weights = np.zeros_like(q_pdf_values)
+valid_indices = (q_pdf_values > 1e-9) # Avoid division by zero
+weights[valid_indices] = p_pdf_values[valid_indices] / q_pdf_values[valid_indices]
+weights[~valid_indices] = 0 # Assign 0 weight if q_pdf is ~0
+
+y_exp_is = np.mean(y_is * weights)
+print(f"IS expected value of y ({num_samples_is} samples, mu_q={mu_q}, sigma_q={sigma_q}): {y_exp_is:.6f}")
+
+# Separate y_is values and their weights
+y_is_zero_indices = (y_is == 0)
+y_is_nonzero_indices = (y_is > 0)
+
+y_is_zero = y_is[y_is_zero_indices]
+weights_zero = weights[y_is_zero_indices]
+
+y_is_nonzero = y_is[y_is_nonzero_indices]
+weights_nonzero = weights[y_is_nonzero_indices]
+
+# The sum of weights for y_is_nonzero should approximate P(y>0)
+# The sum of weights for y_is_zero should approximate P(y=0)
+# (if weights are normalized to sum to 1 across all samples, otherwise sum(weights)/N approximates it)
+# Or, more directly: sum(weights[y_is>0]) / sum(weights) approximates P(y>0 | sampled by IS)
+# which should in turn approximate the true P(y>0).
+if np.sum(weights) > 1e-9:
+    prop_y_gt_0_is = np.sum(weights_nonzero) / np.sum(weights)
+    prop_y_eq_0_is = np.sum(weights_zero) / np.sum(weights)
+    print(f"IS: Weighted proportion of y=0 samples: {prop_y_eq_0_is:.4f}")
+    print(f"IS: Weighted proportion of y>0 samples: {prop_y_gt_0_is:.4f}")
+else:
+    print("IS: Sum of weights is too small to estimate proportions.")
+
+
+#%% Plotting the probability distributions
+
+# Because y can range from 0 to >1,000,000, we'll focus on y > 0 and use a log scale for y-values.
+# We'll normalize the histograms for y > 0 to represent conditional probability density p(y | y > 0).
+
+plt.style.use('seaborn-v0_8-whitegrid') # Using a seaborn style
+fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=False) # sharex=False as scales differ
+
+# --- Plot for Standard Monte Carlo ---
+if len(y_mc_nonzero) > 0:
+    # Bins for the log-transformed non-zero y values
+    # Calculate min and max for binning, careful with log(0) if any y_mc_nonzero are extremely small
+    log_y_mc_nonzero = np.log10(y_mc_nonzero[y_mc_nonzero > 1e-9]) # Avoid log(0) or tiny numbers if any
+    if len(log_y_mc_nonzero) > 0:
+        min_log_y = np.min(log_y_mc_nonzero)
+        max_log_y = np.max(log_y_mc_nonzero)
+        # Create bins in log space, then convert back for hist input if needed, or plot on log scale directly
+        bins_log_mc = np.logspace(min_log_y, max_log_y, 50)
+
+        # Plot histogram on a log x-scale
+        axes[0].hist(y_mc_nonzero, bins=bins_log_mc, density=True, alpha=0.7, label=f'MC P(y|y>0) ({len(y_mc_nonzero)} samples)')
+        # The density=True here normalizes so the area of this part is 1.
+        # To reflect actual probability, this density should be scaled by P(y>0).
+        # For visualization of shape, P(y|y>0) is fine.
+        axes[0].set_xscale('log')
+        axes[0].set_yscale('log') # Also log y-axis for histogram counts/density for better visibility
+        axes[0].set_title(f'Distribution of y > 0 (Standard MC)\nNote: P(y=0) ≈ {len(y_mc_zero)/len(y_mc):.2f}')
+        axes[0].set_xlabel('y values (log scale)')
+        axes[0].set_ylabel('Density (log scale)')
+        axes[0].legend()
+    else:
+        axes[0].text(0.5, 0.5, 'No non-zero y_mc samples to plot.', ha='center', va='center')
+else:
+    axes[0].text(0.5, 0.5, 'No non-zero y_mc samples.', ha='center', va='center')
+axes[0].grid(True, which="both", ls="-", alpha=0.5)
+
+
+# --- Plot for Importance Sampling ---
+if len(y_is_nonzero) > 0 and np.sum(weights_nonzero) > 1e-9: # Ensure there are non-zero values and weights
+    # We need to create bins based on the range of y_is_nonzero
+    log_y_is_nonzero = np.log10(y_is_nonzero[y_is_nonzero > 1e-9])
+    if len(log_y_is_nonzero) > 0:
+        min_log_y_is = np.min(log_y_is_nonzero)
+        max_log_y_is = np.max(log_y_is_nonzero)
+        bins_log_is = np.logspace(min_log_y_is, max_log_y_is, 50)
+
+        # Plot weighted histogram on a log x-scale
+        # The weights for density=True should be such that sum(weights_nonzero_norm) = 1
+        # hist will normalize so sum(height * bin_width) = 1 if density=True
+        # and weights are interpreted as "counts" before normalization.
+        axes[1].hist(y_is_nonzero, bins=bins_log_is, weights=weights_nonzero, density=True, alpha=0.7, color='green', label=f'IS P(y|y>0) ({len(y_is_nonzero)} samples)')
+        # For density=True with weights, matplotlib normalizes so that the integral of the histogram is 1.
+        # This gives the shape of P(y|y>0, using IS samples)
+        axes[1].set_xscale('log')
+        axes[1].set_yscale('log')
+        axes[1].set_title(f'Distribution of y > 0 (Importance Sampling)\nNote: Weighted P(y=0) ≈ {prop_y_eq_0_is:.2f} (using IS formula)')
+        axes[1].set_xlabel('y values (log scale)')
+        axes[1].set_ylabel('Density (log scale)')
+        axes[1].legend()
+    else:
+        axes[1].text(0.5, 0.5, 'No non-zero y_is samples with positive weight to plot.', ha='center', va='center')
+else:
+    axes[1].text(0.5, 0.5, 'No non-zero y_is samples or sum of weights is zero.', ha='center', va='center')
+axes[1].grid(True, which="both", ls="-", alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+
+# --- Alternative plotting with Seaborn for KDE (smoother plot) ---
+# This requires careful handling of weights and the log scale for KDE.
+# Seaborn's kdeplot can take weights directly.
+
+fig_kde, axes_kde = plt.subplots(2, 1, figsize=(12, 10), sharex=True) # Share x-axis for direct comparison
+
+# MC KDE plot
+if len(y_mc_nonzero) > 0:
+    sns.kdeplot(y_mc_nonzero, ax=axes_kde[0], log_scale=True, color='blue', fill=True, alpha=0.5, label='MC KDE of y (y>0)')
+    axes_kde[0].set_title(f'KDE of y > 0 (Standard MC)\nNote: P(y=0) ≈ {len(y_mc_zero)/len(y_mc):.2f}')
+    axes_kde[0].set_ylabel('Density')
+    axes_kde[0].legend()
+else:
+    axes_kde[0].text(0.5, 0.5, 'No non-zero y_mc samples for KDE.', ha='center', va='center')
+axes_kde[0].grid(True, which="both", ls="-", alpha=0.5)
+
+
+# IS KDE plot
+if len(y_is_nonzero) > 0 and np.sum(weights_nonzero) > 1e-9:
+    # For KDE with weights, ensure weights sum to 1 for proper density interpretation if plotting conditional
+    # Seaborn handles normalization internally when `weights` are provided.
+    sns.kdeplot(y_is_nonzero, weights=weights_nonzero, ax=axes_kde[1], log_scale=True, color='green', fill=True, alpha=0.5, label='IS KDE of y (y>0)')
+    axes_kde[1].set_title(f'KDE of y > 0 (Importance Sampling)\nNote: Weighted P(y=0) ≈ {prop_y_eq_0_is:.2f}')
+    axes_kde[1].set_xlabel('y values (log scale)')
+    axes_kde[1].set_ylabel('Density')
+    axes_kde[1].legend()
+else:
+    axes_kde[1].text(0.5, 0.5, 'No non-zero y_is samples or sum of weights zero for KDE.', ha='center', va='center')
+axes_kde[1].grid(True, which="both", ls="-", alpha=0.5)
+
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+#%% Imports
+import numpy as np
+import pandas as pd # plotnine requires pandas
+from scipy import integrate
+from scipy.stats import uniform, norm, truncnorm
+import matplotlib.pyplot as plt # Still useful for general plot display control maybe
+
+# Import plotnine components
+from plotnine import ggplot, aes, geom_histogram, geom_density, scale_x_log10, scale_y_log10
+from plotnine import facet_wrap, labs, theme_minimal, theme_matplotlib, after_stat
+
+#%% Range for x
+x_min = 0
+x_max = 20
+num_samples_mc = 100_000
+num_samples_is = 10_000 # IS might need fewer samples
+
+#%% Function to calculate y
+def calc(x):
+    x = np.asarray(x)
+    # return np.where((x >= 5) & (x <= 10), (x**3 + 4**x), 0)
+    return np.where((x >= 5) & (x <= 10), norm(7.5, 3).pdf(x), 0)
+
+#%% Real expected value of y (for reference)
+pdf_p_x_constant = 1.0 / (x_max - x_min)
+integrand_real = lambda x_val: calc(x_val) * pdf_p_x_constant
+y_exp_real = integrate.quad(integrand_real, x_min, x_max)[0]
+print(f"Real expected value of y: {y_exp_real:.6f}")
+
+# Probabilities for y=0 and y>0
+prob_y_eq_0 = ((5 - x_min) + (x_max - 10)) / (x_max - x_min)
+prob_y_gt_0 = (10 - 5) / (x_max - x_min)
+print(f"Theoretical P(y=0): {prob_y_eq_0:.4f}")
+print(f"Theoretical P(y>0): {prob_y_gt_0:.4f}")
+
+#%% Standard Monte Carlo
+print("\n--- Standard Monte Carlo ---")
+p_dist = uniform(loc=x_min, scale=x_max - x_min)
+x_mc = p_dist.rvs(num_samples_mc)
+y_mc = calc(x_mc)
+y_exp_mc = np.mean(y_mc)
+print(f"MC expected value of y ({num_samples_mc} samples): {y_exp_mc:.6f}")
+
+# Separate y_mc values that are zero and non-zero
+y_mc_nonzero = y_mc[y_mc > 0]
+mc_prop_y_eq_0 = 1.0 - len(y_mc_nonzero) / len(y_mc)
+print(f"MC: Estimated P(y=0): {mc_prop_y_eq_0:.4f}")
+
+#%% Importance Sampling
+print("\n--- Importance Sampling ---")
+mu_q = 8.5  # Adjusted mean
+sigma_q = 1.5 # Std dev
+a_trunc = (x_min - mu_q) / sigma_q
+b_trunc = (x_max - mu_q) / sigma_q
+q_dist = truncnorm(a=a_trunc, b=b_trunc, loc=mu_q, scale=sigma_q)
+
+x_is = q_dist.rvs(num_samples_is)
+y_is = calc(x_is)
+
+p_pdf_values = p_dist.pdf(x_is)
+q_pdf_values = q_dist.pdf(x_is)
+weights = np.zeros_like(q_pdf_values)
+valid_indices = (q_pdf_values > 1e-15) # Use a slightly larger threshold maybe
+weights[valid_indices] = p_pdf_values[valid_indices] / q_pdf_values[valid_indices]
+weights[~valid_indices] = 0
+
+y_exp_is = np.mean(y_is * weights) # Or np.sum(y_is * weights) / np.sum(weights) if not normalized? Check IS formula. np.mean assumes weights are like frequencies. Correct is sum(y*w)/sum(w) or mean(y*w) if sum(w)=N
+# Let's use the standard IS estimator form:
+y_exp_is_correct = np.sum(y_is * weights) / num_samples_is # This assumes E[w] = 1
+# Or safer: E_q[y * w]
+y_exp_is_mean = np.mean(y_is * weights)
+
+print(f"IS expected value of y ({num_samples_is} samples, mu_q={mu_q}, sigma_q={sigma_q}) (using np.mean): {y_exp_is_mean:.6f}")
+
+# Separate y_is values and their weights
+y_is_nonzero_indices = (y_is > 0)
+y_is_nonzero = y_is[y_is_nonzero_indices]
+weights_nonzero = weights[y_is_nonzero_indices]
+
+# Estimate P(y=0) using IS weights
+is_prop_y_eq_0 = 0.0
+total_weight = np.sum(weights)
+if total_weight > 1e-9:
+    is_prop_y_eq_0 = np.sum(weights[~y_is_nonzero_indices]) / total_weight
+    print(f"IS: Weighted P(y=0): {is_prop_y_eq_0:.4f}")
+else:
+    print("IS: Sum of weights too small to estimate P(y=0).")
+
+
+#%% Prepare DataFrames for plotnine
+
+# Create MC DataFrame
+df_mc = pd.DataFrame({
+    'y_value': y_mc_nonzero,
+    'method': 'MC',
+    'weight': 1.0 # Each MC sample has equal weight
+})
+
+# Create IS DataFrame
+df_is = pd.DataFrame({
+    'y_value': y_is_nonzero,
+    'method': 'IS',
+    'weight': weights_nonzero # Use the calculated importance weights
+})
+
+# Combine DataFrames
+df_plot = pd.concat([df_mc, df_is], ignore_index=True)
+
+# Filter out potentially problematic zero/negative values before log scaling if any slipped through
+df_plot = df_plot[df_plot['y_value'] > 1e-9]
+
+#%% Create plots using plotnine
+
+# --- Histogram Plot ---
+# Define dynamic titles based on calculated probabilities
+title_hist = (f"Histogram of y > 0 (Conditional Density P(y|y>0))\n"
+              f"Est. P(y=0): MC={mc_prop_y_eq_0:.2f}, IS(weighted)={is_prop_y_eq_0:.2f}")
+
+plot_hist = (
+    ggplot(df_plot, aes(x='y_value', weight='weight', fill='method'))
+    + geom_histogram(aes(y=after_stat('density')), # Use after_stat for density
+                     alpha=0.7, bins=50, position='identity') # Use identity for overlay potential, fine for facet
+    + scale_x_log10(name="y value (log scale)")
+    + scale_y_log10(name="Density P(y|y>0) (log scale)") # Log scale for density too
+    + facet_wrap('~method', scales='fixed') # Separate plots for MC and IS, fixed scales aid comparison
+    + labs(title=title_hist, fill="Sampling Method")
+    # + theme_minimal()
+    # + theme_matplotlib() # Alternative theme
+)
+
+# --- Density Plot (KDE) ---
+title_kde = (f"KDE of y > 0 (Conditional Density P(y|y>0))\n"
+             f"Est. P(y=0): MC={mc_prop_y_eq_0:.2f}, IS(weighted)={is_prop_y_eq_0:.2f}")
+
+plot_kde = (
+    ggplot(df_plot, aes(x='y_value', weight='weight', color='method'))
+    + geom_density(aes(fill='method'), alpha=0.5) # Color lines, fill areas
+    + scale_x_log10(name="y value (log scale)")
+    # Density plots might look better without log scale on y-axis, or need careful limits
+    + scale_y_log10(name="Density P(y|y>0) (log scale)", limits=(1e-10, None)) # Add small lower limit for log scale
+    # + scale_y_continuous(name="Density P(y|y>0)") # Alternative: linear y-scale
+    + facet_wrap('~method', scales='fixed')
+    + labs(title=title_kde, color="Sampling Method", fill="Sampling Method")
+    # + theme_minimal()
+)
+
+#%%
+print (plot_hist)
+# print (plot_kde)
+
+#%% Display the plots
+print("\nDisplaying plotnine histograms...")
+plot_hist.draw()
+plt.show() # Might be needed depending on environment
+
+print("\nDisplaying plotnine density plots...")
+plot_kde.draw()
+plt.show() # Might be needed depending on environment
+
+
+#endregion -----------------------------------------------------------------------------------------
+#region Random Tests
 
 # #%%
 # #%%
