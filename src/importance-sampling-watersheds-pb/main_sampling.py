@@ -26,6 +26,7 @@ from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
 
 #%%
 if __name__ == '__main__':
+
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
     os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
@@ -41,6 +42,7 @@ if __name__ == '__main__':
     # df_storms = df_storms.iloc[[0]] # Only choose one storm from the catalogue for constrained analysis
 
     #%% Read watershed and domain
+
     sp_watershed = gpd.read_file(path_sp_watershed)
     sp_domain = gpd.read_file(path_sp_domain)
 
@@ -60,10 +62,17 @@ if __name__ == '__main__':
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
 
+
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc_0 = 1_000_000
     n_sim_is_1 = 100_000
+
+    
+    #%%
+#     n_sim_mc_0 = 1000
+#     n_sim_is_1 = 100
+
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
     df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
     # df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
@@ -220,60 +229,9 @@ if __name__ == '__main__':
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
+    
     # print(g)
     g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
-
-    # #%%
-    # import numpy as np
-    # from tqdm import tqdm
-    # def get_df_freq_curve(df_depths: pd.DataFrame, n = 1000):
-    #     _depths = df_depths.depth
-    #     _weights = df_depths.weight
-    #     _depth_max = df_depths.depth.max()
-
-    #     v_dep = np.arange(0, _depth_max, _depth_max/n)
-    #     v_prob_exceed = []
-    #     p_bar = tqdm(total=len(v_dep))
-    #     for dep in v_dep:
-    #         prob_exceed = np.mean((_depths >= dep) * _weights)
-    #         v_prob_exceed.append(prob_exceed)
-    #         p_bar.update()
-
-    #     df_freq = pd.DataFrame(dict(
-    #         depth = v_dep,
-    #         prob_exceed = v_prob_exceed,
-    #     ))
-
-    #     return df_freq
-    
-    # #%% Get table of frequency curves
-    # df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0)
-    # df_freq_curve_mc_1 = get_df_freq_curve(df_depths_mc_1)
-    # df_freq_curve_is_1 = get_df_freq_curve(df_depths_is_1)
-
-    # #%% Plot frequency curves
-    # g = \
-    # (pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
-    #     + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
-    #     + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is_1/1000}k)"'), size=0.1)
-    #     + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
-    #     + pn.scale_x_log10()
-    #     + pn.labs(
-    #         x = 'Exceedence Probability',
-    #         y = 'Rainfall Depth',
-    #         title = 'Basic Monte Carlo vs Importance Sampling'
-    #     )
-    #     + pn.theme_bw()
-    #     + pn.theme(
-    #         title = pn.element_text(hjust = 0.5),
-    #         # legend_position = 'bottom',
-    #         legend_title = pn.element_blank(),
-    #         legend_key = pn.element_blank(),
-    #         axis_title_y = pn.element_text(ha = 'left'),
-    #     )
-    # )
-    # print(g)
-    # # g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
 
