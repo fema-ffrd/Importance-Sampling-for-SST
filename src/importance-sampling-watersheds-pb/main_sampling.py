@@ -16,10 +16,11 @@ import geopandas as gpd
 #region Modules
 
 #%%
-from modules.compute_raster_stats import match_crs_to_raster
 from modules.sample_storms import get_sp_stats, sample_storms
-from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_curve
+from modules.compute_raster_stats import match_crs_to_raster
+from modules.compute_depths import compute_depths
 from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -148,7 +149,7 @@ if __name__ == '__main__':
     #%% Read IS Results
     # pls UPDATE this: which distribution/parameter combo to use
     choice_dist = 'TruncNorm'
-    choice_param_value = 1.2
+    choice_param_value = 0.75
     choice_param_name = 'std'
     # choice_dist = 'TruncGenNorm'
     # choice_param_value = 5
@@ -194,8 +195,8 @@ if __name__ == '__main__':
         )
         + pn.theme_bw()
     )
-    # print(g)
-    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    print(g)
+    # g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -223,8 +224,8 @@ if __name__ == '__main__':
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
-    # print(g)
-    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    print(g)
+    # g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Plot depth vs coordinates
     df_xy_mc_stats = \
@@ -244,8 +245,8 @@ if __name__ == '__main__':
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.minx))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxx))
     )
-    # print(g)
-    g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+    print(g)
+    # g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
 
     df_xy_mc_stats = \
     (df_depths_mc_0
@@ -264,7 +265,7 @@ if __name__ == '__main__':
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.miny))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxy))
     )
-    # print(g)
-    g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+    print(g)
+    # g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------

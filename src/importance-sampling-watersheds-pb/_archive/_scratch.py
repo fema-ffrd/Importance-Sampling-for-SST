@@ -975,7 +975,8 @@ import dsplus as ds
 from modules.compute_raster_stats import match_crs_to_raster
 from modules.shift_storm_center import shift_gdf
 from modules.compute_raster_stats import sum_raster_values_in_polygon
-from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_curve
+from modules.compute_depths import compute_depths
+from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 
 #%% Data
 os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
