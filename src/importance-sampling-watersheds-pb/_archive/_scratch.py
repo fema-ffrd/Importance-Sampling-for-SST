@@ -975,6 +975,7 @@ import dsplus as ds
 from modules.compute_raster_stats import match_crs_to_raster
 from modules.shift_storm_center import shift_gdf
 from modules.compute_raster_stats import sum_raster_values_in_polygon
+from modules.compute_depths import compute_depths, print_sim_stats, get_df_freq_curve
 
 #%% Data
 os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
@@ -1026,5 +1027,12 @@ sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
 
 row['depth']
 sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
+
+#%%
+df_storm_sample = df_storm_sample_mc_0.sample(1500)
+df_1 = compute_depths(df_storm_sample, sp_watershed)
+df_2 = compute_depths(df_storm_sample, sp_watershed, parallel=True)
+
+df_1.equals(df_2)
 
 #endregion -----------------------------------------------------------------------------------------
