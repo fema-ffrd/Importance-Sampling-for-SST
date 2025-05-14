@@ -20,7 +20,7 @@ def shift_gdf(gdf: gpd.GeoDataFrame, x_del: float, y_del: float) -> gpd.GeoDataF
     Returns:
         gpd.GeoDataFrame: Shifted geodataframe.
     '''
-    gdf_shifted = gpd.GeoDataFrame(geometry=gdf.geometry.translate(-x_del, -y_del))
+    gdf_shifted = gpd.GeoDataFrame(geometry=gdf.geometry.translate(x_del, y_del))
 
     return gdf_shifted
 

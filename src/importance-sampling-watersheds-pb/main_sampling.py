@@ -26,7 +26,6 @@ from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
 
 #%%
 if __name__ == '__main__':
-
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
     os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
@@ -42,7 +41,6 @@ if __name__ == '__main__':
     # df_storms = df_storms.iloc[[0]] # Only choose one storm from the catalogue for constrained analysis
 
     #%% Read watershed and domain
-
     sp_watershed = gpd.read_file(path_sp_watershed)
     sp_domain = gpd.read_file(path_sp_domain)
 
@@ -145,11 +143,11 @@ if __name__ == '__main__':
     n_sim_is_1 = 100_000
 
     #%% Read Monte Carlo Results
-    df_storm_sample_mc_0 = pd.read_pickle('df_storm_sample_mc_0.pkl')
-    df_storm_sample_mc_1 = pd.read_pickle('df_storm_sample_mc_1.pkl')
+    df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
+    df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
 
-    df_depths_mc_0 = pd.read_pickle('df_depths_mc_0.pkl')
-    df_depths_mc_1 = pd.read_pickle('df_depths_mc_1.pkl')
+    df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
+    df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
 
     #%% Read IS Results
     # pls UPDATE this: which distribution/parameter combo to use
@@ -233,5 +231,43 @@ if __name__ == '__main__':
     # print(g)
     g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
-#endregion -----------------------------------------------------------------------------------------
+    #%% Plot depth vs coordinates
+    df_xy_mc_stats = \
+    (df_depths_mc_0
+        .groupby('x')
+        .agg(
+            depth_min=('depth', 'min'), 
+            depth_max=('depth', 'max'), 
+            depth_mean=('depth', 'mean'), 
+            depth_median=('depth', 'median')
+        )
+        .reset_index()
+    )
+    g = \
+    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x'))
+        + pn.geom_point(pn.aes(y = 'depth_median'))
+        + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.minx))
+        + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxx))
+    )
+    print(g)
 
+    df_xy_mc_stats = \
+    (df_depths_mc_0
+        .groupby('y')
+        .agg(
+            depth_min=('depth', 'min'), 
+            depth_max=('depth', 'max'), 
+            depth_mean=('depth', 'mean'), 
+            depth_median=('depth', 'median')
+        )
+        .reset_index()
+    )
+    g = \
+    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'y'))
+        + pn.geom_point(pn.aes(y = 'depth_median'))
+        + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.miny))
+        + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxy))
+    )
+    print(g)
+
+#endregion -----------------------------------------------------------------------------------------

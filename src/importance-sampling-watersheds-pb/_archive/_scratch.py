@@ -280,23 +280,30 @@ except ValueError as e:
 import numpy as np
 import pandas as pd
 from scipy import integrate 
-from scipy.stats import uniform, truncnorm
-from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+from scipy.stats import uniform, norm, truncnorm
 import matplotlib.pyplot as plt
+import plotnine as pn
+
+#%% Imports (modules)
+from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
 
 #%% Range for x
 x_min = 0
 x_max = 20
 
+watershed_x_min = 5
+watershed_x_max = 10
+
 #%% Function to calculate y
 def calc(x):
-    return np.where((x >= 5) & (x <= 10), (x**3+4**x), 0)
-
+    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), (x**3+4**x), 0)
+    return np.where((x >= watershed_x_min) & (x <= watershed_x_max), norm(loc=7.5, scale=0.5).pdf(x), 0)
 
 #%% Scalar version for integration
 def calc_scalar(x):
     if 5 <= x <= 10:
-        return x**3 + 4**x
+        # return x**3 + 4**x
+        return norm(loc=7.5, scale=0.5).pdf(x)
     else:
         return 0
 
@@ -311,9 +318,9 @@ y_mc = calc(x_mc)
 y_exp_mc = np.mean(y_mc)
 print (y_exp_mc)
 
-#%% Expected value of y using Importance Sampling simulation
-param_std = 0.8
-dist_is = truncnorm(loc=7.5, scale=param_std, a=(x_min-7.5)/param_std, b=(x_max-7.5)/param_std)
+#%% Expected value of y using Importance Sampling simulation (TruncNorm)
+param_std = 0.8 # at least 0.8 to be good
+# dist_is = truncnorm(loc=7.5, scale=param_std, a=(x_min-7.5)/param_std, b=(x_max-7.5)/param_std)
 dist_is = truncnorm(**truncnorm_params(7.5, param_std, x_min, x_max))
 x_is = dist_is.rvs(100_000)
 y_is = calc(x_is)
@@ -324,8 +331,26 @@ y_exp_is = np.mean(y_is * weights)
 # y_exp = np.mean(y)
 print (y_exp_is)
 
+#%% Expected value of y using Importance Sampling simulation (TruncGenNorm)
+beta = 5 # at least ? to be good
+dist_is = TruncatedGeneralizedNormal(
+    loc=7.5,
+    scale=(watershed_x_max-watershed_x_min),
+    lower_bound=x_min,
+    upper_bound=x_max,
+    beta=beta,
+)
+x_is = dist_is.rvs(100_000)
+y_is = calc(x_is)
+p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
+q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
+weights = np.where(q > 1e-9, p/q, 0)
+y_exp_is = np.mean(y_is * weights)
+# y_exp = np.mean(y)
+print (y_exp_is)
+
 #%% Probability of exceedence
-y_val = 70_000
+y_val = 0.0001 #750_000
 
 prob_exceed_mc = np.mean(y_mc >= y_val)
 
@@ -333,6 +358,43 @@ prob_exceed_is = np.mean((y_is >= y_val) * weights)
 
 print (prob_exceed_mc)
 print (prob_exceed_is)
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = x_mc)), pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.lims(x = (x_min, x_max))
+)    + pn.labs(x = 'x (monte carlo sampling)')
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = x_is)), pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.lims(x = (x_min, x_max))
+)    + pn.labs(x = 'x (importance sampling)')
+
+#%%
+# (pn.ggplot(pd.DataFrame(dict(x = y_mc)), pn.aes(x='x'))
+#     + pn.geom_histogram()
+#     + pn.scale_y_log10()
+#     + pn.labs(x = 'y (real values)')
+# )
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = y_mc)).loc[lambda _: _.x > 0], pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.scale_y_log10()
+    + pn.labs(x = 'y (real values, non-zero)')
+)
+
+#%%
+df_xy_mc_stats = \
+(pd.DataFrame(dict(x = x_mc, y = y_mc))
+    .groupby('x')
+    .agg(y_min=('y', 'min'), y_max=('y', 'max'), y_mean=('y', 'mean'), y_median=('y', 'median'))
+    .reset_index()
+)
+(pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x'))
+    + pn.geom_point(pn.aes(y = 'y_median'))
+)
 
 #endregion -----------------------------------------------------------------------------------------
 #region Tests of Importance Sampling Archive
@@ -904,5 +966,65 @@ plt.show() # Might be needed depending on environment
 #         axis_title_y = pn.element_text(ha = 'left'),
 #     )
 # )
+
+#endregion -----------------------------------------------------------------------------------------
+#region Sampling Tests
+
+#%% Libraries
+import dsplus as ds
+from modules.compute_raster_stats import match_crs_to_raster
+from modules.shift_storm_center import shift_gdf
+from modules.compute_raster_stats import sum_raster_values_in_polygon
+
+#%% Data
+os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
+path_storm = pathlib.Path('storm_catalogue_trinity')
+path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
+sp_watershed = gpd.read_file(path_sp_watershed)
+sp_domain = gpd.read_file(path_sp_domain)
+sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
+sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
+df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
+df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
+df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
+df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
+choice_dist = 'TruncNorm'
+choice_param_value = 1.2
+choice_param_name = 'std'
+# choice_dist = 'TruncGenNorm'
+# choice_param_value = 5
+# choice_param_name = 'beta'
+if choice_dist == 'TruncNorm':
+    mult_std = choice_param_value
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+else:
+    beta = choice_param_value
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
+
+
+#%% Centroid file
+sp_centroid = ds.sp_points_from_df_xy(df_storms, crs=sp_watershed.crs)
+sp_centroid.to_file('storm_centroid.shp')
+
+#%%
+i = 0
+_df_storm_sample_mc_0 = df_storm_sample_mc_0.iloc[[i]]
+row = df_depths_mc_0.iloc[i]
+
+sp_centroid_sample = ds.sp_points_from_df_xy(df_storms.loc[lambda _: _.name == row['name']], crs=sp_watershed.crs)
+sp_centroid_sample.to_file('_sample_sp_centroid_sample.shp')
+
+sp_centroid_sample_shifted = ds.sp_points_from_df_xy(_df_storm_sample_mc_0, column_x='x_sampled', column_y='y_sampled', crs=sp_watershed.crs)
+sp_centroid_sample_shifted.to_file('_sample_sp_centroid_sample_shifted.shp')
+
+sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
+sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
+
+row['depth']
+sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
 
 #endregion -----------------------------------------------------------------------------------------
