@@ -53,10 +53,10 @@ if __name__ == '__main__':
     v_watershed_stats = get_sp_stats(sp_watershed)
     v_domain_stats = get_sp_stats(sp_domain)
 
-    #%% Set distribution for x and y
-    # pls UPDATE this: distribution details
-    dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
-    dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
+    # #%% Set distribution for x and y
+    # # pls UPDATE this: distribution details
+    # dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
+    # dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
 
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
@@ -106,7 +106,7 @@ if __name__ == '__main__':
     # pls UPDATE this: beta values for importance sampling with TruncGeoNorm
     n_sim_is = 100_000
 
-    for beta in [5, 10]:
+    for beta in [3, 5, 10]:
         print (f'Running for beta = {beta}')
         dist_x = TruncatedGeneralizedNormal(
             beta=beta,
@@ -148,21 +148,28 @@ if __name__ == '__main__':
 
     #%% Read IS Results
     # pls UPDATE this: which distribution/parameter combo to use
-    choice_dist = 'TruncNorm'
-    choice_param_value = 0.75
-    choice_param_name = 'std'
+    # choice_dist = 'TruncNorm'
+    # choice_param_value = 0.75
+    # choice_param_name = 'std'
+    choice_dist = 'TruncGenNorm'
+    choice_param_value = 3
+    choice_param_name = 'beta'
+
+    # choice_dist = 'TruncNorm'
+    # choice_param_name = 'std'
+    # for choice_param_value in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
     # choice_dist = 'TruncGenNorm'
-    # choice_param_value = 5
     # choice_param_name = 'beta'
+    # for choice_param_value in [3, 5, 10]:
 
     if choice_dist == 'TruncNorm':
         mult_std = choice_param_value
-        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
-        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{choice_param_value}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{choice_param_value}.pkl')
     else:
         beta = choice_param_value
-        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
-        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{choice_param_value}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{choice_param_value}.pkl')
 
     #%% Print some stats about the simulations
     print_sim_stats(df_depths_mc_0)
@@ -195,8 +202,8 @@ if __name__ == '__main__':
         )
         + pn.theme_bw()
     )
-    print(g)
-    # g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    # print(g)
+    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -224,13 +231,14 @@ if __name__ == '__main__':
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
-    print(g)
-    # g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    # print(g)
+    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Plot depth vs coordinates
     df_xy_mc_stats = \
     (df_depths_mc_0
-        .groupby('x')
+        .assign(x_sampled_bin = lambda _: pd.cut(_.x_sampled, bins=100))
+        .groupby('x_sampled_bin')
         .agg(
             depth_min=('depth', 'min'), 
             depth_max=('depth', 'max'), 
@@ -238,19 +246,26 @@ if __name__ == '__main__':
             depth_median=('depth', 'median')
         )
         .reset_index()
+        .assign(x_sampled = lambda _: (_.x_sampled_bin.apply(lambda _x: _x.left).astype(float)+_.x_sampled_bin.apply(lambda _x: _x.right).astype(float))/2)
     )
     g = \
-    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x'))
-        + pn.geom_point(pn.aes(y = 'depth_median'))
+    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x_sampled'))
+        + pn.geom_point(pn.aes(y = 'depth_median', color='"median"'))
+        + pn.geom_point(pn.aes(y = 'depth_mean', color='"mean"'))
+        + pn.geom_point(pn.aes(y = 'depth_min', color='"min"'))
+        + pn.geom_point(pn.aes(y = 'depth_max', color='"max"'))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.minx))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxx))
+        + pn.labs(x = 'x sampled', y = 'depth values')
+        + pn.theme_bw()
     )
-    print(g)
-    # g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+    # print(g)
+    g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
 
     df_xy_mc_stats = \
     (df_depths_mc_0
-        .groupby('y')
+        .assign(y_sampled_bin = lambda _: pd.cut(_.y_sampled, bins=100))
+        .groupby('y_sampled_bin')
         .agg(
             depth_min=('depth', 'min'), 
             depth_max=('depth', 'max'), 
@@ -258,14 +273,20 @@ if __name__ == '__main__':
             depth_median=('depth', 'median')
         )
         .reset_index()
+        .assign(y_sampled = lambda _: (_.y_sampled_bin.apply(lambda _x: _x.left).astype(float)+_.y_sampled_bin.apply(lambda _x: _x.right).astype(float))/2)
     )
     g = \
-    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'y'))
-        + pn.geom_point(pn.aes(y = 'depth_median'))
+    (pn.ggplot(df_xy_mc_stats, pn.aes(x = 'y_sampled'))
+        + pn.geom_point(pn.aes(y = 'depth_median', color='"median"'))
+        + pn.geom_point(pn.aes(y = 'depth_mean', color='"mean"'))
+        + pn.geom_point(pn.aes(y = 'depth_min', color='"min"'))
+        + pn.geom_point(pn.aes(y = 'depth_max', color='"max"'))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.miny))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxy))
+        + pn.labs(x = 'y sampled', y = 'depth values')
+        + pn.theme_bw()
     )
-    print(g)
-    # g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+    # print(g)
+    g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------

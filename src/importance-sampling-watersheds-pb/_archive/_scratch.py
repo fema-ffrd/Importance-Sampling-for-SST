@@ -6,6 +6,1034 @@ import os
 import pathlib
 
 #endregion -----------------------------------------------------------------------------------------
+#region Tests 1 for Importance Sampling (Toy, 1D)
+
+#%% Imports
+import numpy as np
+import pandas as pd
+from scipy import integrate 
+from scipy.stats import uniform, norm, truncnorm
+import matplotlib.pyplot as plt
+import plotnine as pn
+
+#%% Imports (modules)
+from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+
+#%% Range for x
+x_min = 0
+x_max = 500
+
+watershed_x_min = 150
+watershed_x_max = 200
+
+#%% Function to calculate y
+def calc(x):
+    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), (x**3+4**x), 0)
+    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), norm(loc=7.5, scale=0.5).pdf(x), 0)
+    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), norm(loc=7.5, scale=1.5).pdf(x), 0)
+    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), norm(loc=175, scale=35).pdf(x), 0)
+    return norm(loc=175, scale=35).pdf(x)
+
+#%% Real expected value of y
+y_exp_real = integrate.quad(calc, x_min, x_max)[0]/(x_max - x_min)
+print (y_exp_real)
+
+#%% Expected value of y using Monte Carlo simulation
+dist_mc = uniform(loc=x_min, scale=x_max - x_min)
+x_mc = dist_mc.rvs(100)
+y_mc = calc(x_mc)
+y_exp_mc = np.mean(y_mc)
+print (y_exp_mc)
+
+#%% Expected value of y using Importance Sampling simulation (TruncNorm)
+param_std = 20 # at least 0.8 to be good
+dist_is = truncnorm(loc=175, scale=param_std, a=(x_min-175)/param_std, b=(x_max-175)/param_std)
+# dist_is = truncnorm(**truncnorm_params(175, param_std, x_min, x_max))
+x_is = dist_is.rvs(100)
+y_is = calc(x_is)
+p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
+q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
+weights = np.where(q > 1e-9, p/q, 0)
+y_exp_is = np.mean(y_is * weights)
+# y_exp = np.mean(y)
+print (y_exp_is)
+
+#%% Expected value of y using Importance Sampling simulation (TruncGenNorm)
+beta = 10 # at least ? to be good
+dist_is = TruncatedGeneralizedNormal(
+    loc=175,
+    # scale=(watershed_x_max-watershed_x_min),
+    scale=(200-150),
+    lower_bound=x_min,
+    upper_bound=x_max,
+    beta=beta,
+)
+x_is = dist_is.rvs(10)
+y_is = calc(x_is)
+p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
+q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
+weights = np.where(q > 1e-9, p/q, 0)
+y_exp_is = np.mean(y_is * weights)
+# y_exp = np.mean(y)
+print (y_exp_is)
+
+#%% Probability of exceedence
+y_val = 0.0001 #750_000
+y_val = 0.003 #750_000
+
+prob_exceed_mc = np.mean(y_mc >= y_val)
+
+prob_exceed_is = np.mean((y_is >= y_val) * weights)
+
+print (prob_exceed_mc)
+print (prob_exceed_is)
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = x_mc)), pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.lims(x = (x_min, x_max))
+)    + pn.labs(x = 'x (monte carlo sampling)')
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = x_is)), pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.lims(x = (x_min, x_max))
+)    + pn.labs(x = 'x (importance sampling)')
+
+#%%
+(pn.ggplot(pd.DataFrame(dict(x = y_mc)), pn.aes(x='x'))
+    + pn.geom_histogram()
+    + pn.scale_y_log10()
+    + pn.labs(x = 'y (real values)')
+)
+
+# #%%
+# (pn.ggplot(pd.DataFrame(dict(x = y_mc)).loc[lambda _: _.x > 0], pn.aes(x='x'))
+#     + pn.geom_histogram()
+#     + pn.scale_y_log10()
+#     + pn.labs(x = 'y (real values, non-zero)')
+# )
+
+#%%
+df_xy_mc_stats = \
+(pd.DataFrame(dict(x = x_mc, y = y_mc))
+    .groupby('x')
+    .agg(y_min=('y', 'min'), y_max=('y', 'max'), y_mean=('y', 'mean'), y_median=('y', 'median'))
+    .reset_index()
+)
+(pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x'))
+    + pn.geom_point(pn.aes(y = 'y_median'))
+)
+
+#endregion -----------------------------------------------------------------------------------------
+#region Tests 2 for Importance Sampling (Toy, 1D)
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import uniform, truncnorm
+
+#%%
+# 1. Define the true distribution p(x) and the function f(x)
+# p(x) is Uniform(a, b)
+a = 0.0
+b = 10.0
+p_dist = uniform(loc=a, scale=b - a) # scipy.stats.uniform
+
+# f(x) is peaked at c, zero elsewhere
+c = 2.0
+f_peak_width = 0.5  # Controls how wide the non-zero part of f(x) is
+f_active_half_width = 1.5 # f(x) will be non-zero in [c-f_active_half_width, c+f_active_half_width]
+
+def f(x_arr):
+    # Ensure x_arr is a numpy array for vectorized operations
+    x_arr = np.asarray(x_arr)
+    # Gaussian-like shape centered at c, scaled to have max 1
+    # y = np.exp(-((x_arr - c)**2) / (2 * f_peak_width**2))
+    # Make it exactly zero outside an "active region"
+    # condition = (x_arr >= c - f_active_half_width) & (x_arr <= c + f_active_half_width)
+    # return np.where(condition, y, 0.0)
+
+    # Simpler f(x) for clarity: a triangular pulse
+    # Tends to zero as x moves away from c
+    # Max at c, zero at c ± active_half_width
+    res = np.zeros_like(x_arr, dtype=float)
+    # condition = np.abs(x_arr - c) <= f_active_half_width
+    # res[condition] = 1.0 - np.abs(x_arr[condition] - c) / f_active_half_width
+
+    # Using a Gaussian-like shape that's zero outside a range
+    # This is more aligned with "tends to get smaller as x moves away from c"
+    # and "mostly zero when significantly far away"
+    y = np.exp(-((x_arr - c)**2) / (2 * f_peak_width**2))
+    condition = (x_arr >= c - f_active_half_width) & (x_arr <= c + f_active_half_width)
+    # A more practical f(x) could be like this:
+    # if x is far from c, it's 0. If it's close, it has some value.
+    return np.where(condition, y, 0.0)
+
+#%%
+# 2. Define the proposal distribution q(x) for Importance Sampling
+# We'll use a truncated normal distribution centered at c, over [a,b]
+q_mu = c
+q_sigma = 0.75 #0.75 # Make it reasonably concentrated around c but not too narrow
+# Parameters for truncnorm: (lower_clip - loc) / scale, (upper_clip - loc) / scale
+clip_a, clip_b = (a - q_mu) / q_sigma, (b - q_mu) / q_sigma
+q_dist = truncnorm(clip_a, clip_b, loc=q_mu, scale=q_sigma)
+
+#%%
+# Number of samples
+n_samples = 500
+
+#%%
+# --- Standard Monte Carlo ---
+print("--- Standard Monte Carlo ---")
+x_mc = p_dist.rvs(size=n_samples)
+y_mc = f(x_mc)
+
+# Count non-zero samples for f(x)
+non_zero_mc = np.sum(y_mc > 1e-9) # Use a small threshold for floating point
+print(f"MC: Generated {n_samples} samples for x.")
+print(f"MC: {non_zero_mc} samples resulted in f(x) > 0 (approx).")
+print(f"MC: Proportion of useful samples: {non_zero_mc / n_samples:.4f}")
+
+#%%
+# --- Importance Sampling ---
+print("\n--- Importance Sampling ---")
+x_is = q_dist.rvs(size=n_samples) # Sample x from q(x)
+y_is = f(x_is)
+
+# Calculate importance weights: w(x) = p(x) / q(x)
+# For p(x) = Uniform(a,b), p(x_i) = 1/(b-a) if a <= x_i <= b, else 0
+# Since q_dist samples only from [a,b], all x_is are in this range.
+p_val_at_x_is = p_dist.pdf(x_is) # This is 1/(b-a) for all x_is
+q_val_at_x_is = q_dist.pdf(x_is)
+
+# Defensive check for q_val_at_x_is being zero, though truncnorm should prevent this within its support
+if np.any(q_val_at_x_is <= 1e-9): # Using a small threshold
+    print("Warning: Some q(x_is) values are very small or zero!")
+    # For those values, if p_val is non-zero, weight would be huge.
+    # This indicates a poor choice of q(x) if p(x)f(x) is non-zero there.
+    # In our setup, q_dist is defined over [a,b] and p_dist is uniform, so this shouldn't be an issue
+    # unless f(x) is non-zero where q(x) is practically zero but p(x) is not.
+
+weights = p_val_at_x_is / q_val_at_x_is
+# Normalize weights (common practice, makes it robust to unnormalized q)
+# For estimating expectations, E_p[g(X)] approx sum(w_i * g(x_i)) / sum(w_i)
+# For histograms, many libraries handle weights directly. `density=True` with weights
+# effectively does sum(w_i in bin) / (sum_total_weights * bin_width)
+# If you sum weights to 1, then it becomes sum(normalized_w_i in bin) / bin_width
+
+non_zero_is = np.sum(y_is > 1e-9)
+print(f"IS: Generated {n_samples} samples for x (from q(x)).")
+print(f"IS: {non_zero_is} samples resulted in f(x) > 0 (approx).")
+print(f"IS: Proportion of 'active region' samples: {non_zero_is / n_samples:.4f}")
+print(f"IS: Min weight: {np.min(weights):.4f}, Max weight: {np.max(weights):.4f}, Mean weight: {np.mean(weights):.4f}")
+if np.var(weights) > 10 * np.mean(weights)**2 and np.var(weights) > 1: # Heuristic for high variance
+    print(f"IS: Warning - High variance in weights detected (Var: {np.var(weights):.2f}). Consider a q(x) closer to p(x) or a mixture.")
+
+#%%
+# --- Plotting ---
+fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+
+# Plot 1: p(x), q(x) and f(x)
+x_plot = np.linspace(a, b, 500)
+f_x_plot = f(x_plot)
+p_x_plot = p_dist.pdf(x_plot)
+q_x_plot = q_dist.pdf(x_plot)
+
+axs[0,0].plot(x_plot, p_x_plot, label=f'p(x) = Uniform({a},{b})', color='blue')
+axs[0,0].plot(x_plot, q_x_plot, label=f'q(x) = TruncNorm(mu={q_mu}, sigma={q_sigma})', color='green', linestyle='--')
+ax_f = axs[0,0].twinx() # Secondary y-axis for f(x)
+ax_f.plot(x_plot, f_x_plot, label='f(x) (target function)', color='red', linestyle=':')
+ax_f.set_ylabel('f(x) value', color='red')
+ax_f.tick_params(axis='y', labelcolor='red')
+ax_f.set_ylim(bottom=-0.05, top=np.max(f_x_plot)*1.1 if np.max(f_x_plot) > 0 else 1.1)
+
+
+axs[0,0].set_xlabel('x')
+axs[0,0].set_ylabel('Density (p(x), q(x))', color='blue')
+axs[0,0].tick_params(axis='y', labelcolor='blue')
+axs[0,0].set_title('Distributions p(x), q(x) and function f(x)')
+lines, labels = axs[0,0].get_legend_handles_labels()
+lines2, labels2 = ax_f.get_legend_handles_labels()
+axs[0,0].legend(lines + lines2, labels + labels2, loc='upper right')
+axs[0,0].grid(True, alpha=0.3)
+
+
+# Plot 2: Histogram of x_mc samples and x_is samples
+axs[0,1].hist(x_mc, bins=50, density=True, alpha=0.6, label='x_mc ~ p(x)', color='blue')
+axs[0,1].hist(x_is, bins=50, density=True, alpha=0.6, label='x_is ~ q(x)', color='green') # density for x_is is q(x)
+axs[0,1].plot(x_plot, p_x_plot, color='blue', linestyle='-', lw=1.5, label='True p(x)')
+axs[0,1].plot(x_plot, q_x_plot, color='green', linestyle='--', lw=1.5, label='True q(x)')
+axs[0,1].set_xlabel('x value')
+axs[0,1].set_ylabel('Density of sampled x')
+axs[0,1].set_title('Histograms of Sampled x values')
+axs[0,1].legend()
+axs[0,1].grid(True, alpha=0.3)
+
+
+# Plot 3: Histograms of f(x) from MC
+# We filter out the zeros for y_mc for a clearer plot of the non-zero part,
+# but it's important to remember those zeros exist.
+y_mc_non_zero = y_mc[y_mc > 1e-9]
+if len(y_mc_non_zero) > 1: # Need at least 2 points for histogram
+    axs[1,0].hist(y_mc_non_zero, bins=30, density=True, alpha=0.7, label=f'f(x_mc) (MC, {len(y_mc_non_zero)} non-zero)', color='blue')
+else:
+    axs[1,0].text(0.5, 0.5, 'MC: Too few non-zero f(x)\n to plot histogram', ha='center', va='center')
+axs[1,0].set_xlabel('f(x) value')
+axs[1,0].set_ylabel('Density')
+axs[1,0].set_title('Distribution of f(x) from Standard MC')
+axs[1,0].legend()
+axs[1,0].grid(True, alpha=0.3)
+axs[1,0].set_xlim(-0.05, 1.05) # f(x) values are between 0 and 1
+
+# Plot 4: Histograms of f(x) from IS
+# Filter out zeros for y_is for plotting clarity, but use corresponding weights
+y_is_non_zero_indices = (y_is > 1e-9)
+y_is_plot = y_is[y_is_non_zero_indices]
+weights_plot = weights[y_is_non_zero_indices]
+
+if len(y_is_plot) > 1:
+    # For density=True, weights are used to make the integral of the histogram = 1.
+    # The sum of weights is used in normalization.
+    axs[1,1].hist(y_is_plot, bins=30, density=True, weights=weights_plot, alpha=0.7, label=f'f(x_is) (IS, {len(y_is_plot)} non-zero)', color='green')
+else:
+    axs[1,1].text(0.5, 0.5, 'IS: Too few non-zero f(x)\n to plot histogram', ha='center', va='center')
+axs[1,1].set_xlabel('f(x) value')
+axs[1,1].set_ylabel('Density')
+axs[1,1].set_title('Distribution of f(x) from Importance Sampling')
+axs[1,1].legend()
+axs[1,1].grid(True, alpha=0.3)
+axs[1,1].set_xlim(-0.05, 1.05)
+
+plt.tight_layout()
+plt.show()
+
+#%%
+# Compare the distributions of f(x) (e.g. their means)
+# Note: E_p[f(X)]
+mean_f_mc = np.mean(y_mc)
+# E_p[f(X)] = E_q[f(X) * p(X)/q(X)]
+# Self-normalized IS estimator: sum(weights * f(x_is)) / sum(weights)
+# If sum(weights) is used for normalization in histogram (density=True), mean from hist is what we want.
+# For direct expectation:
+if np.sum(weights) > 0: # Avoid division by zero if all weights are zero (unlikely)
+    # mean_f_is = np.sum(weights * y_is) / np.sum(weights)
+    mean_f_is = np.sum(weights * y_is) / n_samples
+else:
+    mean_f_is = 0 # Or handle as an error / NaN
+
+print(f"\nMean of f(x) from MC: {mean_f_mc:.4f}")
+print(f"Mean of f(x) from IS: {mean_f_is:.4f}")
+
+# True mean of f(x) can be approximated by high-resolution numerical integration
+# For a more precise 'true' distribution of f(x), one would need many more samples from p(x)
+# or analytical derivation if f(x) is simple enough.
+# Let's use a very large MC sample as a 'ground truth' reference for the PDF of f(x)
+n_ref_samples = 500000
+x_ref = p_dist.rvs(size=n_ref_samples)
+y_ref = f(x_ref)
+
+mean_f_ref = np.mean(y_ref)
+print(f"Mean of f(x) from Ref: {mean_f_ref:.4f}")
+
+y_ref_non_zero = y_ref[y_ref > 1e-9]
+
+if len(y_ref_non_zero) > 1 and len(y_mc_non_zero) > 1:
+    axs[1,0].hist(y_ref_non_zero, bins=30, density=True, alpha=0.4, label=f'Ref ({len(y_ref_non_zero)} non-zero)', color='grey', histtype='step', linewidth=1.5)
+    axs[1,0].legend()
+if len(y_ref_non_zero) > 1 and len(y_is_plot) > 1:
+    axs[1,1].hist(y_ref_non_zero, bins=30, density=True, alpha=0.4, label=f'Ref ({len(y_ref_non_zero)} non-zero)', color='grey', histtype='step', linewidth=1.5)
+    axs[1,1].legend()
+
+plt.show()
+# plt.savefig("importance_sampling_f_dist.png") # Save the figure again after adding ref
+# print("\nPlots updated with reference distribution and saved to importance_sampling_f_dist.png")
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import uniform, truncnorm
+from statsmodels.distributions.empirical_distribution import ECDF # For weighted ECDF
+
+# 1. Define the true distribution p(x) and the function f(x)
+# p(x) is Uniform(a, b)
+a = 0.0
+b = 10.0
+p_dist = uniform(loc=a, scale=b - a) # scipy.stats.uniform
+
+# f(x) is peaked at c, zero elsewhere
+c_val = 2.0 # Renamed from 'c' to avoid conflict with ECDF variable
+f_peak_width = 0.5  # Controls how wide the non-zero part of f(x) is
+f_active_half_width = 1.5 # f(x) will be non-zero in [c-f_active_half_width, c+f_active_half_width]
+
+def f(x_arr):
+    x_arr = np.asarray(x_arr)
+    y = np.exp(-((x_arr - c_val)**2) / (2 * f_peak_width**2))
+    condition = (x_arr >= c_val - f_active_half_width) & (x_arr <= c_val + f_active_half_width)
+    return np.where(condition, y, 0.0)
+
+# 2. Define the proposal distribution q(x) for Importance Sampling
+q_mu = c_val
+q_sigma = 0.75 # Original value, you might experiment with this
+clip_a, clip_b = (a - q_mu) / q_sigma, (b - q_mu) / q_sigma
+q_dist = truncnorm(clip_a, clip_b, loc=q_mu, scale=q_sigma)
+
+# Number of samples
+n_samples = 2000 # Same as before
+n_ref_samples = 500000 # For ground truth
+
+# --- Standard Monte Carlo ---
+print("--- Standard Monte Carlo ---")
+x_mc = p_dist.rvs(size=n_samples)
+y_mc = f(x_mc)
+non_zero_mc = np.sum(y_mc > 1e-9)
+print(f"MC: {non_zero_mc}/{n_samples} non-zero f(x) samples.")
+
+# --- Importance Sampling ---
+print("\n--- Importance Sampling ---")
+x_is = q_dist.rvs(size=n_samples)
+y_is = f(x_is)
+p_val_at_x_is = p_dist.pdf(x_is)
+q_val_at_x_is = q_dist.pdf(x_is)
+weights = p_val_at_x_is / q_val_at_x_is
+non_zero_is = np.sum(y_is > 1e-9)
+print(f"IS: {non_zero_is}/{n_samples} non-zero f(x) samples (before weighting).")
+print(f"IS: Mean weight: {np.mean(weights):.4f}, Var weight: {np.var(weights):.4f}")
+# For self-normalized estimates, we need the sum of weights
+sum_weights = np.sum(weights)
+normalized_weights_for_ecdf = weights / sum_weights # statsmodels ECDF expects weights summing to 1 if side='right' (default for probability)
+
+
+# --- Ground Truth (Large MC Sample) ---
+print("\n--- Ground Truth Generation ---")
+x_ref = p_dist.rvs(size=n_ref_samples)
+y_ref = f(x_ref)
+non_zero_ref = np.sum(y_ref > 1e-9)
+print(f"REF: {non_zero_ref}/{n_ref_samples} non-zero f(x) samples.")
+
+# --- Calculate ECDFs ---
+
+# Standard MC ECDF
+# Sort the samples. The ECDF jumps by 1/n at each sample.
+# For plotting, we want to include the point mass at y=0 correctly if present.
+# We can use statsmodels ECDF for unweighted case too for consistency, or do it manually.
+# y_mc_sorted = np.sort(y_mc)
+# ecdf_mc_y = np.arange(1, n_samples + 1) / n_samples
+# To handle the 0s better visually for ECDF:
+# We can plot from slightly before min(y_mc) to slightly after max(y_mc)
+ecdf_mc = ECDF(y_mc)
+
+# Importance Sampling Weighted ECDF
+# For a weighted ECDF, we sort the y_is values.
+# Then, at each y_is_sorted[j], the ECDF jumps by its normalized weight w_sorted[j].
+# statsmodels.distributions.empirical_distribution.ECDF can handle weights.
+# It expects weights to sum to 1 for the typical interpretation, or it normalizes internally.
+# Let's use the normalized weights explicitly to be clear.
+# Sort y_is and align weights:
+sort_indices_is = np.argsort(y_is)
+y_is_sorted = y_is[sort_indices_is]
+weights_sorted_for_ecdf = normalized_weights_for_ecdf[sort_indices_is] # Use weights that sum to 1
+ecdf_is = ECDF(y_is_sorted, weights=weights_sorted_for_ecdf) # weights here should be probability weights
+
+# Ground Truth ECDF
+ecdf_ref = ECDF(y_ref)
+
+# --- Plotting ECDFs ---
+plt.figure(figsize=(10, 7))
+
+# Generate points for plotting the ECDF steps
+# ECDF objects from statsmodels can be called like functions
+plot_y_vals = np.linspace(min(y_ref.min(), y_mc.min(), y_is.min()) - 0.01,
+                          max(y_ref.max(), y_mc.max(), y_is.max()) + 0.01,
+                          1000)
+plot_y_vals = np.unique(np.concatenate([plot_y_vals, y_mc, y_is, y_ref])) # Add exact sample points
+plot_y_vals.sort()
+plot_y_vals = np.clip(plot_y_vals, -0.05, 1.05) # f(x) is between 0 and 1
+
+# Plot MC ECDF
+plt.plot(ecdf_mc.x, ecdf_mc.y, label=f'Monte Carlo (n={n_samples})', drawstyle='steps-post', color='blue', alpha=0.7)
+
+# Plot IS ECDF
+# The ECDF object handles the steps correctly.
+plt.plot(ecdf_is.x, ecdf_is.y, label=f'Importance Sampling (n={n_samples})', drawstyle='steps-post', color='green', alpha=0.7)
+
+# Plot Reference ECDF
+plt.plot(ecdf_ref.x, ecdf_ref.y, label=f'Ground Truth (n={n_ref_samples})', drawstyle='steps-post', color='grey', linestyle='--', linewidth=1.5)
+
+
+plt.xlabel('f(x) value (y)')
+plt.ylabel('Cumulative Probability P(f(X) <= y)')
+plt.title('Empirical Cumulative Distribution Functions (ECDF) of f(x)')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.xlim(-0.05, 1.05) # f(x) values are mostly between 0 and 1
+plt.ylim(-0.05, 1.05)
+plt.show()
+
+# --- For your reference, how to calculate mean from ECDF (conceptually) ---
+# Mean from ECDF = integral of (1 - CDF(y)) dy from 0 to inf (for non-negative variables)
+# - integral of CDF(y) dy from -inf to 0
+# Or for discrete values from ECDF object:
+# mean_mc_from_ecdf = np.sum(np.diff(ecdf_mc.x) * (1 - ecdf_mc.y[:-1])) # If ecdf_mc.x starts at min value
+# This is more complex for step functions, direct mean calculation is easier.
+
+# Direct mean calculations (as before, for context):
+mean_f_mc = np.mean(y_mc)
+if sum_weights > 0:
+    mean_f_is_self_norm = np.sum(weights * y_is) / sum_weights
+    mean_f_is_basic = np.sum(weights * y_is) / n_samples
+else:
+    mean_f_is_self_norm = mean_f_is_basic = 0
+mean_f_ref = np.mean(y_ref)
+
+print(f"\nMean of f(x) from MC: {mean_f_mc:.6f}")
+print(f"Mean of f(x) from IS (Self-Norm): {mean_f_is_self_norm:.6f}")
+print(f"Mean of f(x) from IS (Basic): {mean_f_is_basic:.6f}")
+print(f"Mean of f(x) from Ref (Ground Truth): {mean_f_ref:.6f}")
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import uniform, truncnorm
+from statsmodels.distributions.empirical_distribution import ECDF # For unweighted
+
+# --- (Keep your existing p(x), f(x), q(x) definitions and sampling code) ---
+# 1. Define the true distribution p(x) and the function f(x)
+# p(x) is Uniform(a, b)
+a = 0.0
+b = 10.0
+p_dist = uniform(loc=a, scale=b - a) # scipy.stats.uniform
+
+# f(x) is peaked at c, zero elsewhere
+c_val = 2.0 # Renamed from 'c' to avoid conflict with ECDF variable
+f_peak_width = 0.5  # Controls how wide the non-zero part of f(x) is
+f_active_half_width = 1.5 # f(x) will be non-zero in [c-f_active_half_width, c+f_active_half_width]
+
+def f(x_arr):
+    x_arr = np.asarray(x_arr)
+    y = np.exp(-((x_arr - c_val)**2) / (2 * f_peak_width**2))
+    condition = (x_arr >= c_val - f_active_half_width) & (x_arr <= c_val + f_active_half_width)
+    return np.where(condition, y, 0.0)
+
+# 2. Define the proposal distribution q(x) for Importance Sampling
+q_mu = c_val
+q_sigma = 0.75 # Original value, you might experiment with this
+clip_a, clip_b = (a - q_mu) / q_sigma, (b - q_mu) / q_sigma
+q_dist = truncnorm(clip_a, clip_b, loc=q_mu, scale=q_sigma)
+
+# Number of samples
+n_samples = 2000 # Same as before
+n_ref_samples = 500000 # For ground truth
+
+# --- Standard Monte Carlo ---
+print("--- Standard Monte Carlo ---")
+x_mc = p_dist.rvs(size=n_samples)
+y_mc = f(x_mc)
+non_zero_mc = np.sum(y_mc > 1e-9)
+print(f"MC: {non_zero_mc}/{n_samples} non-zero f(x) samples.")
+
+# --- Importance Sampling ---
+print("\n--- Importance Sampling ---")
+x_is = q_dist.rvs(size=n_samples)
+y_is = f(x_is)
+p_val_at_x_is = p_dist.pdf(x_is)
+q_val_at_x_is = q_dist.pdf(x_is)
+weights = p_val_at_x_is / q_val_at_x_is
+non_zero_is = np.sum(y_is > 1e-9)
+print(f"IS: {non_zero_is}/{n_samples} non-zero f(x) samples (before weighting).")
+print(f"IS: Mean weight: {np.mean(weights):.4f}, Var weight: {np.var(weights):.4f}")
+sum_weights = np.sum(weights)
+if sum_weights == 0: # Avoid division by zero if all weights are zero
+    normalized_weights_is = np.ones_like(weights) / len(weights) # Fallback to uniform if sum is 0
+else:
+    normalized_weights_is = weights / sum_weights
+
+
+# --- Ground Truth (Large MC Sample) ---
+print("\n--- Ground Truth Generation ---")
+x_ref = p_dist.rvs(size=n_ref_samples)
+y_ref = f(x_ref)
+non_zero_ref = np.sum(y_ref > 1e-9)
+print(f"REF: {non_zero_ref}/{n_ref_samples} non-zero f(x) samples.")
+
+# --- Calculate ECDFs ---
+
+# Standard MC ECDF (using statsmodels ECDF for unweighted)
+ecdf_mc = ECDF(y_mc)
+
+# Ground Truth ECDF (using statsmodels ECDF for unweighted)
+ecdf_ref = ECDF(y_ref)
+
+# Importance Sampling Weighted ECDF (Manual Calculation)
+# 1. Sort y_is and keep weights aligned
+idx_sort_is = np.argsort(y_is)
+y_is_sorted = y_is[idx_sort_is]
+weights_is_sorted = normalized_weights_is[idx_sort_is] # Use weights that sum to 1
+
+# 2. Calculate cumulative sum of weights
+ecdf_is_y_values = np.cumsum(weights_is_sorted)
+
+# 3. Define the x-values for the ECDF steps
+# The ECDF value ecdf_is_y_values[i] is valid for y_is_sorted[i] <= y < y_is_sorted[i+1]
+# To plot with steps-post, we use y_is_sorted as the x-coordinates where the step *up* occurs.
+# We also need to ensure the plot starts at 0 if the smallest y_is_sorted is > 0 and has weight at y=0
+# And handle the case where all y_is are 0.
+
+# For plotting, we need to make sure the ECDF starts appropriately.
+# If the smallest y_is_sorted > 0, the CDF is 0 before that point.
+# If y_is_sorted starts with 0s, their cumulative weight will be the P(Y=0).
+
+# Prepend a point to make the ECDF start from 0 if necessary,
+# and to correctly plot the first step.
+# `ecdf_is_x_plot` will be the "x" coordinates of the ECDF steps.
+# `ecdf_is_y_plot` will be the "y" coordinates (cumulative probabilities).
+
+# Handle empty y_is_sorted (e.g., if n_samples = 0 or f(x) always 0 and no weights)
+if len(y_is_sorted) == 0:
+    ecdf_is_x_plot = np.array([-np.inf, np.inf]) # Or some reasonable range like [0,1]
+    ecdf_is_y_plot = np.array([0,0]) # No probability mass
+elif np.all(y_is_sorted == y_is_sorted[0]): # All y_is_sorted values are the same
+    # e.g. all f(x) are 0.
+    ecdf_is_x_plot = np.array([y_is_sorted[0], y_is_sorted[0]])
+    # If they are all the same non-zero value, y_plot should be [0,1] for that value.
+    # If y_is_sorted[0] > 0, need to show 0 before it.
+    if y_is_sorted[0] > 0:
+        ecdf_is_x_plot = np.array([y_is_sorted[0] - 1e-9, y_is_sorted[0], y_is_sorted[0]]) # Approximate for plotting
+        ecdf_is_y_plot = np.array([0, 0, 1.0])
+    else: # all y_is_sorted are 0
+        ecdf_is_x_plot = np.array([0, 0])
+        ecdf_is_y_plot = np.array([0, 1.0]) # CDF is 1 at y=0
+else:
+    # Standard case
+    ecdf_is_x_plot = y_is_sorted
+    # The y_values are the cumulative sums. For plotting with steps-post,
+    # the value ecdf_is_y_values[i] is achieved *at and after* ecdf_is_x_plot[i].
+    # We need to prepend a 0 to the y-values if the first x-value is > 0,
+    # and adjust the x-values to match for steps-post.
+    
+    # More robust way using unique values and their cumulative probabilities
+    unique_y_is, unique_idx = np.unique(y_is_sorted, return_index=True)
+    # Sum weights for each unique y value
+    # This is a bit more complex if there are repeated y values with different original indices
+    # Easier: Iterate through sorted unique y values
+    
+    # Let's use a simpler approach suitable for plotting with steps-post:
+    # `ecdf_is_x_plot` will be unique sorted y values.
+    # `ecdf_is_y_plot_final` will be the CDF value *at* these x values.
+    
+    # This is essentially what statsmodels.ECDF does internally for the .x and .y attributes
+    # Find unique sorted values for x-axis
+    unique_x = np.unique(y_is_sorted)
+    
+    # Calculate CDF values at these unique points
+    # For each u in unique_x, CDF(u) = sum of weights for all y_is <= u
+    cdf_at_unique_x = np.array([np.sum(weights_is_sorted[y_is_sorted <= u_val]) for u_val in unique_x])
+
+    # For plotting with steps-post, we need to handle the start properly.
+    # If the smallest unique_x > 0, the CDF is 0 before that.
+    ecdf_is_x_plot_final = unique_x
+    ecdf_is_y_plot_final = cdf_at_unique_x
+
+    # Ensure plot starts at y=0 if smallest x is > 0
+    if ecdf_is_x_plot_final[0] > 0:
+        ecdf_is_x_plot_for_plot = np.insert(ecdf_is_x_plot_final, 0, ecdf_is_x_plot_final[0]-1e-9) # A point just before
+        ecdf_is_y_plot_for_plot = np.insert(ecdf_is_y_plot_final, 0, 0)
+        # And also add the first actual point again to make the step up from 0
+        ecdf_is_x_plot_for_plot = np.insert(ecdf_is_x_plot_for_plot, 1, ecdf_is_x_plot_final[0])
+        ecdf_is_y_plot_for_plot = np.insert(ecdf_is_y_plot_for_plot, 1, 0)
+
+    else: # Smallest x is 0
+        # If first x is 0, cdf_at_unique_x[0] is P(Y=0).
+        # For steps-post, we want the value *before* the jump at 0 to be 0.
+        ecdf_is_x_plot_for_plot = np.insert(ecdf_is_x_plot_final, 0, -1e-9) # A point just before 0
+        ecdf_is_y_plot_for_plot = np.insert(ecdf_is_y_plot_final, 0, 0)
+        
+    # Ensure the plot goes to 1 at the end
+    if ecdf_is_y_plot_for_plot[-1] < 1.0 - 1e-6 : # If not already very close to 1
+        ecdf_is_x_plot_for_plot = np.append(ecdf_is_x_plot_for_plot, ecdf_is_x_plot_for_plot[-1] + 1e-9) # A point just after
+        ecdf_is_y_plot_for_plot = np.append(ecdf_is_y_plot_for_plot, 1.0)
+
+
+# --- Plotting ECDFs ---
+plt.figure(figsize=(10, 7))
+
+# Plot MC ECDF
+plt.plot(ecdf_mc.x, ecdf_mc.y, label=f'Monte Carlo (n={n_samples})', drawstyle='steps-post', color='blue', alpha=0.7)
+
+# Plot IS ECDF (Manual)
+if len(y_is_sorted) > 0: # Only plot if there are samples
+    plt.plot(ecdf_is_x_plot_for_plot, ecdf_is_y_plot_for_plot, label=f'Importance Sampling (n={n_samples})', drawstyle='steps-post', color='green', alpha=0.7)
+else:
+    plt.plot([], [], label=f'Importance Sampling (n={n_samples}) - No Data', drawstyle='steps-post', color='green', alpha=0.7)
+
+
+# Plot Reference ECDF
+plt.plot(ecdf_ref.x, ecdf_ref.y, label=f'Ground Truth (n={n_ref_samples})', drawstyle='steps-post', color='grey', linestyle='--', linewidth=1.5)
+
+plt.xlabel('f(x) value (y)')
+plt.ylabel('Cumulative Probability P(f(X) <= y)')
+plt.title('Empirical Cumulative Distribution Functions (ECDF) of f(x)')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.xlim(-0.05, 1.05)
+plt.ylim(-0.05, 1.05)
+plt.show()
+
+# --- (Mean calculations remain the same) ---
+mean_f_mc = np.mean(y_mc)
+if sum_weights > 0:
+    mean_f_is_self_norm = np.sum(weights * y_is) / sum_weights
+    mean_f_is_basic = np.sum(weights * y_is) / n_samples
+else:
+    mean_f_is_self_norm = mean_f_is_basic = 0
+mean_f_ref = np.mean(y_ref)
+
+print(f"\nMean of f(x) from MC: {mean_f_mc:.6f}")
+print(f"Mean of f(x) from IS (Self-Norm): {mean_f_is_self_norm:.6f}")
+print(f"Mean of f(x) from IS (Basic): {mean_f_is_basic:.6f}")
+print(f"Mean of f(x) from Ref (Ground Truth): {mean_f_ref:.6f}")
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import uniform, truncnorm
+from statsmodels.distributions.empirical_distribution import ECDF
+
+# 1. Define the true distribution p(x) and the function f(x)
+a = 0.0
+b = 10.0
+p_dist = uniform(loc=a, scale=b - a)
+
+c_val = 2.0
+f_peak_width = 0.5
+f_active_half_width = 1.5
+
+def f(x_arr):
+    x_arr = np.asarray(x_arr)
+    y = np.exp(-((x_arr - c_val)**2) / (2 * f_peak_width**2))
+    condition = (x_arr >= c_val - f_active_half_width) & (x_arr <= c_val + f_active_half_width)
+    return np.where(condition, y, 0.0)
+
+# 2. Define the PEAK component of the proposal distribution q_peak(x)
+q_peak_mu = c_val
+q_peak_sigma = 0.75 # Original sigma for the peaked component
+clip_a_peak, clip_b_peak = (a - q_peak_mu) / q_peak_sigma, (b - q_peak_mu) / q_peak_sigma
+q_peak_dist = truncnorm(clip_a_peak, clip_b_peak, loc=q_peak_mu, scale=q_peak_sigma)
+
+# Number of samples
+n_samples = 2000
+n_ref_samples = 500000
+
+# --- Standard Monte Carlo ---
+print("--- Standard Monte Carlo ---")
+x_mc = p_dist.rvs(size=n_samples)
+y_mc = f(x_mc)
+ecdf_mc = ECDF(y_mc)
+mean_f_mc = np.mean(y_mc)
+print(f"MC: Mean f(x) = {mean_f_mc:.6f}")
+
+# --- Importance Sampling (Original - for comparison if you uncomment) ---
+# print("\n--- Importance Sampling (Original) ---")
+# x_is_orig = q_peak_dist.rvs(size=n_samples)
+# y_is_orig = f(x_is_orig)
+# p_val_at_x_is_orig = p_dist.pdf(x_is_orig)
+# q_val_at_x_is_orig = q_peak_dist.pdf(x_is_orig) # Using q_peak as the original q
+# weights_orig = p_val_at_x_is_orig / q_val_at_x_is_orig
+# sum_weights_orig = np.sum(weights_orig)
+# mean_f_is_orig_self_norm = np.sum(weights_orig * y_is_orig) / sum_weights_orig if sum_weights_orig > 0 else 0
+# print(f"IS (Orig): Mean weight: {np.mean(weights_orig):.4f}, Var weight: {np.var(weights_orig):.4f}")
+# print(f"IS (Orig): Self-Norm Mean f(x) = {mean_f_is_orig_self_norm:.6f}")
+# Manual ECDF for IS Original (copying logic from previous solution)
+# idx_sort_is_orig = np.argsort(y_is_orig)
+# y_is_orig_sorted = y_is_orig[idx_sort_is_orig]
+# normalized_weights_is_orig = weights_orig / sum_weights_orig if sum_weights_orig > 0 else np.ones_like(weights_orig)/len(weights_orig)
+# weights_is_orig_sorted = normalized_weights_is_orig[idx_sort_is_orig]
+# unique_x_orig, cdf_at_unique_x_orig, x_plot_orig, y_plot_orig = None, None, None, None
+# if len(y_is_orig_sorted) > 0:
+#     unique_x_orig = np.unique(y_is_orig_sorted)
+#     cdf_at_unique_x_orig = np.array([np.sum(weights_is_orig_sorted[y_is_orig_sorted <= u_val]) for u_val in unique_x_orig])
+#     x_plot_orig, y_plot_orig = manual_ecdf_plotting_points(unique_x_orig, cdf_at_unique_x_orig)
+
+
+# --- Importance Sampling with Mixture Distribution ---
+print("\n--- Importance Sampling (Mixture) ---")
+alpha_mix = 0.2  # Mixture coefficient for p(x)
+
+# Sampling from the mixture:
+# Decide for each sample whether it comes from p(x) or q_peak(x)
+# choices = np.random.choice([0, 1], size=n_samples, p=[alpha_mix, 1 - alpha_mix])
+# n_from_p = np.sum(choices == 0)
+# n_from_q_peak = n_samples - n_from_p
+# More direct way to get counts:
+n_from_p = np.random.binomial(n_samples, alpha_mix)
+n_from_q_peak = n_samples - n_from_p
+
+x_is_mix = np.zeros(n_samples)
+if n_from_p > 0:
+    x_is_mix[:n_from_p] = p_dist.rvs(size=n_from_p)
+if n_from_q_peak > 0:
+    x_is_mix[n_from_p:] = q_peak_dist.rvs(size=n_from_q_peak)
+np.random.shuffle(x_is_mix) # Shuffle to mix them up, though not strictly necessary for math
+
+y_is_mix = f(x_is_mix)
+
+# PDF of the mixture distribution q_mix(x)
+pdf_p_at_x_is_mix = p_dist.pdf(x_is_mix)
+pdf_q_peak_at_x_is_mix = q_peak_dist.pdf(x_is_mix)
+pdf_q_mix_at_x_is_mix = alpha_mix * pdf_p_at_x_is_mix + (1 - alpha_mix) * pdf_q_peak_at_x_is_mix
+
+# Importance weights for the mixture
+weights_mix = pdf_p_at_x_is_mix / pdf_q_mix_at_x_is_mix
+
+# Diagnostics for mixture weights
+print(f"IS (Mix) with alpha={alpha_mix}:")
+print(f"  Mean weight: {np.mean(weights_mix):.4f}")
+print(f"  Var weight:  {np.var(weights_mix):.4f}")
+sum_weights_mix = np.sum(weights_mix)
+
+# Mean estimates for mixture IS
+mean_f_is_mix_self_norm = 0
+mean_f_is_mix_basic = 0
+if sum_weights_mix > 0:
+    mean_f_is_mix_self_norm = np.sum(weights_mix * y_is_mix) / sum_weights_mix
+if n_samples > 0 : # Basic estimator needs n_samples
+    mean_f_is_mix_basic = np.sum(weights_mix * y_is_mix) / n_samples
+
+print(f"  Self-Norm Mean f(x): {mean_f_is_mix_self_norm:.6f}")
+print(f"  Basic Mean f(x):     {mean_f_is_mix_basic:.6f}")
+
+
+# --- Ground Truth (Large MC Sample) ---
+print("\n--- Ground Truth Generation ---")
+x_ref = p_dist.rvs(size=n_ref_samples)
+y_ref = f(x_ref)
+ecdf_ref = ECDF(y_ref)
+mean_f_ref = np.mean(y_ref)
+print(f"REF: Mean f(x) = {mean_f_ref:.6f}")
+
+
+# --- Manual ECDF Calculation Function (from previous solution) ---
+def manual_ecdf_plotting_points(y_sorted_data, normalized_weights_sorted_data):
+    if len(y_sorted_data) == 0:
+        return np.array([-0.05, 1.05]), np.array([0, 0]) # Default for empty
+
+    unique_x = np.unique(y_sorted_data)
+    # This part needs care: sum weights for unique values
+    # Easier: use y_sorted_data and cumsum of its corresponding normalized_weights_sorted_data
+    # if all weights are simple 1/N, this is easy. For general weights:
+    
+    # This approach assumes y_sorted_data already has unique values or we sum weights for them.
+    # Let's use the logic for unique points and their cumulative weights directly from statsmodels-like .x, .y
+    
+    # Rebuild ECDF .x and .y attributes similar to statsmodels
+    # 1. Sort data and weights together
+    idx_sort = np.argsort(y_sorted_data)
+    y_s = y_sorted_data[idx_sort]
+    w_s = normalized_weights_sorted_data[idx_sort]
+
+    # 2. Find unique sorted y values
+    unique_y_vals, unique_indices = np.unique(y_s, return_index=True)
+    
+    # 3. Calculate cumulative sum of weights. Need to sum weights for ties in y_s.
+    # This is simpler: Use y_s and w_s directly. The ECDF points are (y_s[i], cumsum(w_s)[i])
+    # For plotting steps-post, this already gives the "y" values of the ECDF.
+    # The "x" values are y_s.
+    
+    cdf_y_values = np.cumsum(w_s)
+    
+    # For plotting:
+    # Start from (y_s[0], cdf_y_values[0])
+    # Before y_s[0], the CDF is 0, if y_s[0] > 0 or if y_s[0]=0 and it's the first point.
+    
+    plot_x = y_s
+    plot_y = cdf_y_values
+
+    # Prepend points to make the ECDF start from (y_min, 0) and correctly show first step.
+    # Also ensure it ends at 1.0
+    final_x = []
+    final_y = []
+
+    # Start from 0 probability
+    if plot_x[0] > 0 : # If smallest value is > 0, CDF is 0 before it
+        final_x.extend([plot_x[0] - 1e-9, plot_x[0]]) # Point just before, and the point itself
+        final_y.extend([0, 0]) 
+    elif plot_x[0] == 0: # If smallest value is 0
+        final_x.append(-1e-9) # Point just before 0
+        final_y.append(0)
+    # else smallest value is < 0, which shouldn't happen for f(x) >=0
+
+    final_x.extend(plot_x)
+    final_y.extend(plot_y)
+    
+    # Ensure ECDF ends at 1.0
+    if final_y[-1] < 1.0 - 1e-6:
+        final_x.append(final_x[-1] + 1e-9) # Point just after last data point
+        final_y.append(1.0) # Force to 1
+    else: # If already 1.0 or very close, ensure the last y is exactly 1.0
+        final_y[-1] = 1.0
+        
+    # Remove duplicates in x that might have arisen from prepending, keeping last y
+    # This can be complex. The `statsmodels.ECDF` object handles this well with its .x and .y
+    # For manual plotting, we can rely on `drawstyle='steps-post'` with sorted unique x and corresponding cdf y.
+    
+    # Let's simplify: use unique x values and calculate CDF at these points
+    # This matches the logic from the previous working manual ECDF.
+    
+    unique_x_vals = np.unique(y_sorted_data)
+    cdf_at_unique_x = np.array([np.sum(normalized_weights_sorted_data[y_sorted_data <= u_val]) for u_val in unique_x_vals])
+    
+    plot_x_final = unique_x_vals
+    plot_y_final = cdf_at_unique_x
+    
+    if len(plot_x_final) == 0: return np.array([-0.05,1.05]), np.array([0,0])
+
+    if plot_x_final[0] > 0:
+        plot_x_for_plt = np.insert(plot_x_final, 0, plot_x_final[0] - 1e-9)
+        plot_y_for_plt = np.insert(plot_y_final, 0, 0.0)
+        plot_x_for_plt = np.insert(plot_x_for_plt, 1, plot_x_final[0]) # step up point
+        plot_y_for_plt = np.insert(plot_y_for_plt, 1, 0.0)
+    else: # plot_x_final[0] == 0
+        plot_x_for_plt = np.insert(plot_x_final, 0, -1e-9)
+        plot_y_for_plt = np.insert(plot_y_final, 0, 0.0)
+        
+    # Ensure last point goes to 1.0
+    if plot_y_for_plt[-1] < 1.0 - 1e-6:
+        plot_x_for_plt = np.append(plot_x_for_plt, plot_x_for_plt[-1] + 1e-9) # add a point slightly after
+        plot_y_for_plt = np.append(plot_y_for_plt, 1.0) # force CDF to 1
+    else:
+        plot_y_for_plt[-1] = 1.0 # Ensure it's exactly 1
+
+    return plot_x_for_plt, plot_y_for_plt
+
+
+# ECDF for IS Mixture (Manual)
+ecdf_is_mix_x_plot, ecdf_is_mix_y_plot = [],[]
+if n_samples > 0 and sum_weights_mix > 0:
+    normalized_weights_is_mix = weights_mix / sum_weights_mix
+    ecdf_is_mix_x_plot, ecdf_is_mix_y_plot = manual_ecdf_plotting_points(y_is_mix, normalized_weights_is_mix)
+else: # Handle case with no samples or zero sum of weights
+    ecdf_is_mix_x_plot, ecdf_is_mix_y_plot = manual_ecdf_plotting_points(np.array([]), np.array([]))
+
+
+# --- Plotting ECDFs ---
+plt.figure(figsize=(12, 8))
+
+# Plot MC ECDF
+plt.plot(ecdf_mc.x, ecdf_mc.y, label=f'Monte Carlo (n={n_samples})', drawstyle='steps-post', color='blue', alpha=0.6, linewidth=1.5)
+
+# Plot IS Mixture ECDF
+if len(ecdf_is_mix_x_plot) > 0:
+    plt.plot(ecdf_is_mix_x_plot, ecdf_is_mix_y_plot, label=f'IS Mixture α={alpha_mix} (n={n_samples})', drawstyle='steps-post', color='red', alpha=0.7, linewidth=1.5)
+else:
+    plt.plot([],[], label=f'IS Mixture α={alpha_mix} (n={n_samples}) - No Data', drawstyle='steps-post', color='red')
+
+# Plot Reference ECDF
+plt.plot(ecdf_ref.x, ecdf_ref.y, label=f'Ground Truth (n={n_ref_samples})', drawstyle='steps-post', color='grey', linestyle='--', linewidth=2)
+
+plt.xlabel('f(x) value (y)')
+plt.ylabel('Cumulative Probability P(f(X) <= y)')
+plt.title('Empirical Cumulative Distribution Functions (ECDF) of f(x)')
+plt.legend(loc='center right')
+plt.grid(True, alpha=0.4)
+plt.xlim(-0.05, 1.05)
+plt.ylim(-0.05, 1.05)
+plt.show()
+
+# --- Print final mean comparisons ---
+print(f"\n--- Final Mean Comparisons ---")
+print(f"MC:              {mean_f_mc:.6f}")
+# print(f"IS (Original SN): {mean_f_is_orig_self_norm:.6f}") # If you run original IS
+print(f"IS (Mix Basic):    {mean_f_is_mix_basic:.6f}")
+print(f"IS (Mix SelfNorm): {mean_f_is_mix_self_norm:.6f}")
+print(f"Ground Truth:      {mean_f_ref:.6f}")
+
+# Further diagnostics: Effective Sample Size for IS Mixture
+if np.mean(weights_mix)**2 > 0: # Avoid division by zero if mean weight is zero
+    ess_mix = n_samples / (1 + np.var(weights_mix) / (np.mean(weights_mix)**2) )
+    print(f"IS (Mix) Effective Sample Size (ESS): {ess_mix:.2f} (out of {n_samples})")
+else:
+    print("IS (Mix) Effective Sample Size (ESS): N/A (mean weight is zero)")
+
+#endregion -----------------------------------------------------------------------------------------
+#region Tests for Main Sampling
+
+#%% Libraries
+import dsplus as ds
+
+from modules.compute_raster_stats import match_crs_to_raster
+from modules.shift_storm_center import shift_gdf
+from modules.compute_raster_stats import sum_raster_values_in_polygon
+from modules.compute_depths import compute_depths
+from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve, get_prob
+
+#%% Data
+os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
+path_storm = pathlib.Path('storm_catalogue_trinity')
+path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
+sp_watershed = gpd.read_file(path_sp_watershed)
+sp_domain = gpd.read_file(path_sp_domain)
+sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
+sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
+df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
+df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
+df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
+df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
+choice_dist = 'TruncNorm'
+choice_param_value = 1.2
+choice_param_name = 'std'
+# choice_dist = 'TruncGenNorm'
+# choice_param_value = 5
+# choice_param_name = 'beta'
+if choice_dist == 'TruncNorm':
+    mult_std = choice_param_value
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+else:
+    beta = choice_param_value
+    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
+
+
+#%% Centroid file
+sp_centroid = ds.sp_points_from_df_xy(df_storms, crs=sp_watershed.crs)
+sp_centroid.to_file('storm_centroid.shp')
+
+#%%
+i = 0
+_df_storm_sample_mc_0 = df_storm_sample_mc_0.iloc[[i]]
+row = df_depths_mc_0.iloc[i]
+
+sp_centroid_sample = ds.sp_points_from_df_xy(df_storms.loc[lambda _: _.name == row['name']], crs=sp_watershed.crs)
+sp_centroid_sample.to_file('_sample_sp_centroid_sample.shp')
+
+sp_centroid_sample_shifted = ds.sp_points_from_df_xy(_df_storm_sample_mc_0, column_x='x_sampled', column_y='y_sampled', crs=sp_watershed.crs)
+sp_centroid_sample_shifted.to_file('_sample_sp_centroid_sample_shifted.shp')
+
+sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
+sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
+
+row['depth']
+sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
+
+#%%
+df_storm_sample = df_storm_sample_mc_0.sample(1500)
+df_1 = compute_depths(df_storm_sample, sp_watershed)
+df_2 = compute_depths(df_storm_sample, sp_watershed, parallel=True)
+
+df_1.equals(df_2)
+
+#endregion -----------------------------------------------------------------------------------------
 #region Convert geojson to shp
 
 #%%
@@ -274,130 +1302,7 @@ except ValueError as e:
     print(f"Error creating truncated distribution: {e}")
 
 #endregion -----------------------------------------------------------------------------------------
-#region Tests for Importance Sampling
-
-#%% Imports
-import numpy as np
-import pandas as pd
-from scipy import integrate 
-from scipy.stats import uniform, norm, truncnorm
-import matplotlib.pyplot as plt
-import plotnine as pn
-
-#%% Imports (modules)
-from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
-
-#%% Range for x
-x_min = 0
-x_max = 20
-
-watershed_x_min = 5
-watershed_x_max = 10
-
-#%% Function to calculate y
-def calc(x):
-    # return np.where((x >= watershed_x_min) & (x <= watershed_x_max), (x**3+4**x), 0)
-    return np.where((x >= watershed_x_min) & (x <= watershed_x_max), norm(loc=7.5, scale=0.5).pdf(x), 0)
-
-#%% Scalar version for integration
-def calc_scalar(x):
-    if 5 <= x <= 10:
-        # return x**3 + 4**x
-        return norm(loc=7.5, scale=0.5).pdf(x)
-    else:
-        return 0
-
-#%% Real expected value of y
-y_exp_real = integrate.quad(calc_scalar, x_min, x_max)[0]/(x_max - x_min)
-print (y_exp_real)
-
-#%% Expected value of y using Monte Carlo simulation
-dist_mc = uniform(loc=x_min, scale=x_max - x_min)
-x_mc = dist_mc.rvs(100_000)
-y_mc = calc(x_mc)
-y_exp_mc = np.mean(y_mc)
-print (y_exp_mc)
-
-#%% Expected value of y using Importance Sampling simulation (TruncNorm)
-param_std = 0.8 # at least 0.8 to be good
-# dist_is = truncnorm(loc=7.5, scale=param_std, a=(x_min-7.5)/param_std, b=(x_max-7.5)/param_std)
-dist_is = truncnorm(**truncnorm_params(7.5, param_std, x_min, x_max))
-x_is = dist_is.rvs(100_000)
-y_is = calc(x_is)
-p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
-q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
-weights = np.where(q > 1e-9, p/q, 0)
-y_exp_is = np.mean(y_is * weights)
-# y_exp = np.mean(y)
-print (y_exp_is)
-
-#%% Expected value of y using Importance Sampling simulation (TruncGenNorm)
-beta = 5 # at least ? to be good
-dist_is = TruncatedGeneralizedNormal(
-    loc=7.5,
-    scale=(watershed_x_max-watershed_x_min),
-    lower_bound=x_min,
-    upper_bound=x_max,
-    beta=beta,
-)
-x_is = dist_is.rvs(100_000)
-y_is = calc(x_is)
-p = dist_mc.pdf(x_is) # PDF of original uniform distribution at sampled points
-q = dist_is.pdf(x_is) # PDF of proposal truncated normal at sampled points
-weights = np.where(q > 1e-9, p/q, 0)
-y_exp_is = np.mean(y_is * weights)
-# y_exp = np.mean(y)
-print (y_exp_is)
-
-#%% Probability of exceedence
-y_val = 0.0001 #750_000
-
-prob_exceed_mc = np.mean(y_mc >= y_val)
-
-prob_exceed_is = np.mean((y_is >= y_val) * weights)
-
-print (prob_exceed_mc)
-print (prob_exceed_is)
-
-#%%
-(pn.ggplot(pd.DataFrame(dict(x = x_mc)), pn.aes(x='x'))
-    + pn.geom_histogram()
-    + pn.lims(x = (x_min, x_max))
-)    + pn.labs(x = 'x (monte carlo sampling)')
-
-#%%
-(pn.ggplot(pd.DataFrame(dict(x = x_is)), pn.aes(x='x'))
-    + pn.geom_histogram()
-    + pn.lims(x = (x_min, x_max))
-)    + pn.labs(x = 'x (importance sampling)')
-
-#%%
-# (pn.ggplot(pd.DataFrame(dict(x = y_mc)), pn.aes(x='x'))
-#     + pn.geom_histogram()
-#     + pn.scale_y_log10()
-#     + pn.labs(x = 'y (real values)')
-# )
-
-#%%
-(pn.ggplot(pd.DataFrame(dict(x = y_mc)).loc[lambda _: _.x > 0], pn.aes(x='x'))
-    + pn.geom_histogram()
-    + pn.scale_y_log10()
-    + pn.labs(x = 'y (real values, non-zero)')
-)
-
-#%%
-df_xy_mc_stats = \
-(pd.DataFrame(dict(x = x_mc, y = y_mc))
-    .groupby('x')
-    .agg(y_min=('y', 'min'), y_max=('y', 'max'), y_mean=('y', 'mean'), y_median=('y', 'median'))
-    .reset_index()
-)
-(pn.ggplot(df_xy_mc_stats, pn.aes(x = 'x'))
-    + pn.geom_point(pn.aes(y = 'y_median'))
-)
-
-#endregion -----------------------------------------------------------------------------------------
-#region Tests of Importance Sampling Archive
+#region ARCHIVE Tests of Importance Sampling
 
 #%% Imports
 import numpy as np
@@ -917,7 +1822,7 @@ plt.show() # Might be needed depending on environment
 
 
 #endregion -----------------------------------------------------------------------------------------
-#region Random Tests
+#region ARCHIVE Random Tests
 
 # #%%
 # #%%
@@ -966,74 +1871,5 @@ plt.show() # Might be needed depending on environment
 #         axis_title_y = pn.element_text(ha = 'left'),
 #     )
 # )
-
-#endregion -----------------------------------------------------------------------------------------
-#region Sampling Tests
-
-#%% Libraries
-import dsplus as ds
-from modules.compute_raster_stats import match_crs_to_raster
-from modules.shift_storm_center import shift_gdf
-from modules.compute_raster_stats import sum_raster_values_in_polygon
-from modules.compute_depths import compute_depths
-from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
-
-#%% Data
-os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
-path_storm = pathlib.Path('storm_catalogue_trinity')
-path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
-path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
-df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
-sp_watershed = gpd.read_file(path_sp_watershed)
-sp_domain = gpd.read_file(path_sp_domain)
-sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
-sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
-df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
-df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
-df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
-df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
-choice_dist = 'TruncNorm'
-choice_param_value = 1.2
-choice_param_name = 'std'
-# choice_dist = 'TruncGenNorm'
-# choice_param_value = 5
-# choice_param_name = 'beta'
-if choice_dist == 'TruncNorm':
-    mult_std = choice_param_value
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
-else:
-    beta = choice_param_value
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
-
-
-#%% Centroid file
-sp_centroid = ds.sp_points_from_df_xy(df_storms, crs=sp_watershed.crs)
-sp_centroid.to_file('storm_centroid.shp')
-
-#%%
-i = 0
-_df_storm_sample_mc_0 = df_storm_sample_mc_0.iloc[[i]]
-row = df_depths_mc_0.iloc[i]
-
-sp_centroid_sample = ds.sp_points_from_df_xy(df_storms.loc[lambda _: _.name == row['name']], crs=sp_watershed.crs)
-sp_centroid_sample.to_file('_sample_sp_centroid_sample.shp')
-
-sp_centroid_sample_shifted = ds.sp_points_from_df_xy(_df_storm_sample_mc_0, column_x='x_sampled', column_y='y_sampled', crs=sp_watershed.crs)
-sp_centroid_sample_shifted.to_file('_sample_sp_centroid_sample_shifted.shp')
-
-sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
-sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
-
-row['depth']
-sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
-
-#%%
-df_storm_sample = df_storm_sample_mc_0.sample(1500)
-df_1 = compute_depths(df_storm_sample, sp_watershed)
-df_2 = compute_depths(df_storm_sample, sp_watershed, parallel=True)
-
-df_1.equals(df_2)
 
 #endregion -----------------------------------------------------------------------------------------

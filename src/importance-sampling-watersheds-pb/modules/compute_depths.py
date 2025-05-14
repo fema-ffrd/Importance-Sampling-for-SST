@@ -1,3 +1,10 @@
+#region Modules
+
+#%%
+from compute_raster_stats import sum_raster_values_in_polygon
+from shift_storm_center import shift_gdf
+
+#endregion -----------------------------------------------------------------------------------------
 #region Libraries
 
 #%%
@@ -11,13 +18,6 @@ import numpy as np
 import pandas as pd
 
 import geopandas as gpd
-
-#endregion -----------------------------------------------------------------------------------------
-#region Modules
-
-#%%
-from compute_raster_stats import sum_raster_values_in_polygon
-from shift_storm_center import shift_gdf
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
