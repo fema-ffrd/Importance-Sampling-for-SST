@@ -54,23 +54,15 @@ if __name__ == '__main__':
 
     #%% Set distribution for x and y
     # pls UPDATE this: distribution details
-    # dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
-    # dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
-
     dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
     dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
-
 
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc_0 = 1_000_000
     n_sim_is_1 = 100_000
-
-    
+  
     #%%
-#     n_sim_mc_0 = 1000
-#     n_sim_is_1 = 100
-
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
     df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
     # df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
@@ -89,6 +81,8 @@ if __name__ == '__main__':
     # df_depths_is_1.to_pickle('df_depths_is_1.pkl')
 
 
+
+    # The following lines create importance sampling tests for different parameters
 
     #%% Truncated Normal Distribution
     # pls UPDATE this: standard deviations for importance sampling with TruncNorm
@@ -137,6 +131,8 @@ if __name__ == '__main__':
         df_depths_is.to_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
 
+
+    # The following lines read the results from before and evaluate the results
 
     #%% Read number of simulations
     n_sim_mc_0 = 1_000_000
@@ -198,8 +194,8 @@ if __name__ == '__main__':
         )
         + pn.theme_bw()
     )
-    print(g)
-    # g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    # print(g)
+    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -227,7 +223,6 @@ if __name__ == '__main__':
             axis_title_y = pn.element_text(ha = 'left'),
         )
     )
-    
     # print(g)
     g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
 
@@ -249,7 +244,8 @@ if __name__ == '__main__':
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.minx))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxx))
     )
-    print(g)
+    # print(g)
+    g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
 
     df_xy_mc_stats = \
     (df_depths_mc_0
@@ -268,6 +264,7 @@ if __name__ == '__main__':
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.miny))
         + pn.geom_vline(pn.aes(xintercept = v_watershed_stats.maxy))
     )
-    print(g)
+    # print(g)
+    g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
