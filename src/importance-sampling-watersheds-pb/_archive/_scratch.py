@@ -350,7 +350,7 @@ plt.show()
 # print("\nPlots updated with reference distribution and saved to importance_sampling_f_dist.png")
 
 #endregion -----------------------------------------------------------------------------------------
-#region 
+#region Tests 2b for Importance Sampling (Toy, 1D)
 
 #%%
 import numpy as np
@@ -495,7 +495,7 @@ print(f"Mean of f(x) from IS (Basic): {mean_f_is_basic:.6f}")
 print(f"Mean of f(x) from Ref (Ground Truth): {mean_f_ref:.6f}")
 
 #endregion -----------------------------------------------------------------------------------------
-#region 
+#region Tests 2c for Importance Sampling (Toy, 1D)
 
 #%%
 import numpy as np
@@ -700,7 +700,7 @@ print(f"Mean of f(x) from IS (Basic): {mean_f_is_basic:.6f}")
 print(f"Mean of f(x) from Ref (Ground Truth): {mean_f_ref:.6f}")
 
 #endregion -----------------------------------------------------------------------------------------
-#region 
+#region Tests 2d for Importance Sampling (Toy, 1D, mixture model)
 
 #%%
 import numpy as np
@@ -932,9 +932,9 @@ plt.plot(ecdf_mc.x, ecdf_mc.y, label=f'Monte Carlo (n={n_samples})', drawstyle='
 
 # Plot IS Mixture ECDF
 if len(ecdf_is_mix_x_plot) > 0:
-    plt.plot(ecdf_is_mix_x_plot, ecdf_is_mix_y_plot, label=f'IS Mixture α={alpha_mix} (n={n_samples})', drawstyle='steps-post', color='red', alpha=0.7, linewidth=1.5)
+    plt.plot(ecdf_is_mix_x_plot, ecdf_is_mix_y_plot, label=f'IS Mixture alpha={alpha_mix} (n={n_samples})', drawstyle='steps-post', color='red', alpha=0.7, linewidth=1.5)
 else:
-    plt.plot([],[], label=f'IS Mixture α={alpha_mix} (n={n_samples}) - No Data', drawstyle='steps-post', color='red')
+    plt.plot([],[], label=f'IS Mixture alpha={alpha_mix} (n={n_samples}) - No Data', drawstyle='steps-post', color='red')
 
 # Plot Reference ECDF
 plt.plot(ecdf_ref.x, ecdf_ref.y, label=f'Ground Truth (n={n_ref_samples})', drawstyle='steps-post', color='grey', linestyle='--', linewidth=2)
