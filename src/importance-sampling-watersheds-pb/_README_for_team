@@ -2,3 +2,4 @@ Any code snippet with "pls UPDATE this" as a comment needs to be updated.
 Only run the scripts with a "main_" prefix.
 Scripts in the "modules" folder do not need to be run, they are imported in the main scripts.
 Scripts in the "_archive" folder do not need to be used at all, they are only for prototyping.
+The function "compute_depths" uses multiprocessing by default. This can be turned off.
