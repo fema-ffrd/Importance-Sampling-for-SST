@@ -6,6 +6,740 @@ import os
 import pathlib
 
 #endregion -----------------------------------------------------------------------------------------
+#region Functions (Mixtures)
+
+#%%
+import numpy as np
+import scipy.stats as stats
+import scipy
+import scipy.optimize  # For brentq (root finding for PPF)
+import matplotlib.pyplot as plt
+
+
+#%%
+class TruncatedDistribution:
+    """
+    A class to create a truncated version of a scipy.stats continuous distribution.
+
+    Parameters
+    ----------
+    dist : scipy.stats.rv_continuous
+        The original continuous distribution object from scipy.stats.
+        Example: stats.norm(loc=0, scale=1), stats.expon(scale=2)
+    a : float
+        The lower bound for truncation.
+    b : float
+        The upper bound for truncation.
+
+    Methods
+    -------
+    pdf(x)
+        Probability density function.
+    cdf(x)
+        Cumulative distribution function.
+    ppf(q)
+        Percent point function (inverse of cdf).
+    rvs(size=1, random_state=None)
+        Random variates.
+    support()
+        Returns the support of the distribution (a, b).
+    mean()
+        Calculates the mean of the truncated distribution (optional, via numerical integration).
+    var()
+        Calculates the variance of the truncated distribution (optional, via numerical integration).
+    """
+    def __init__(self, dist, a, b):
+        # if not isinstance(dist, stats.rv_continuous):
+        #     raise TypeError("dist must be a continuous distribution from scipy.stats.")
+        if not np.isfinite(a) or not np.isfinite(b):
+            # While possible, let's keep it simple for now.
+            # Truncating an already truncated distribution like truncnorm can be tricky.
+            # scipy.stats.truncnorm handles infinite bounds better.
+            raise ValueError("Truncation bounds 'a' and 'b' must be finite.")
+        if a >= b:
+            raise ValueError(f"Lower bound 'a' ({a}) must be less than upper bound 'b' ({b}).")
+
+        self.dist = dist
+        self.a = float(a)
+        self.b = float(b)
+
+        # Pre-calculate CDF values at bounds for efficiency and normalization
+        self.cdf_a = self.dist.cdf(self.a)
+        self.cdf_b = self.dist.cdf(self.b)
+        
+        self.prob_interval = self.cdf_b - self.cdf_a
+
+        if self.prob_interval <= 0: # Use a small epsilon if very precise checks are needed
+            raise ValueError(
+                f"The probability mass of the original distribution "
+                f"in the interval [{self.a}, {self.b}] is non-positive "
+                f"({self.prob_interval:.2e}). "
+                "Check if bounds are too far in the tails or identical."
+            )
+        
+        # For optional moment calculations
+        self._moments_calculated = False
+        self._mean = None
+        self._var = None
+
+    def pdf(self, x):
+        """Probability density function."""
+        x = np.asarray(x)
+        # Initialize pdf values to 0.0
+        pdf_values = np.zeros_like(x, dtype=float)
+        
+        # Identify mask for values within the truncation interval [a, b]
+        mask = (x >= self.a) & (x <= self.b)
+        
+        # Calculate PDF for values within the interval
+        if np.any(mask):
+            pdf_values[mask] = self.dist.pdf(x[mask]) / self.prob_interval
+            
+        return pdf_values
+
+    def cdf(self, x):
+        """Cumulative distribution function."""
+        x = np.asarray(x)
+        # Initialize cdf values
+        cdf_values = np.zeros_like(x, dtype=float)
+        
+        # Mask for values less than 'a' (cdf is 0)
+        # mask_below_a = x < self.a (already handled by zeros_like)
+
+        # Mask for values greater than 'b' (cdf is 1)
+        mask_above_b = x > self.b
+        cdf_values[mask_above_b] = 1.0
+        
+        # Mask for values within the interval [a, b]
+        mask_interval = (x >= self.a) & (x <= self.b)
+        if np.any(mask_interval):
+            cdf_values[mask_interval] = (self.dist.cdf(x[mask_interval]) - self.cdf_a) / self.prob_interval
+            
+        return cdf_values
+
+    def ppf(self, q):
+        """Percent point function (inverse of cdf)."""
+        q = np.asarray(q)
+        if np.any((q < 0) | (q > 1)):
+            raise ValueError("Input 'q' (quantiles) must be between 0 and 1.")
+            
+        # Transform q back to the original distribution's CDF scale
+        original_cdf_q = self.cdf_a + q * self.prob_interval
+        
+        # Use the original distribution's PPF
+        # Ensure values are clamped if original_cdf_q slightly outside [cdf_a, cdf_b] due to precision
+        # This is generally handled well by ppf if original_cdf_q is within [0,1] for the base dist.
+        ppf_values = self.dist.ppf(original_cdf_q)
+
+        # Clamp results to the interval [a,b] to handle potential floating point issues
+        # or if the base distribution's ppf gives something slightly outside due to its own numerics.
+        # For q=0, we expect a. For q=1, we expect b.
+        ppf_values = np.clip(ppf_values, self.a, self.b)
+        # Specifically handle edges for perfect 0 and 1
+        ppf_values[q == 0] = self.a
+        ppf_values[q == 1] = self.b
+
+        return ppf_values
+
+    def rvs(self, size=1, random_state=None):
+        """Random variates."""
+        if random_state is not None:
+            # For reproducibility if a seed/generator is passed
+            # If using a global random state, this line is not strictly needed
+            # but good practice for isolated components.
+            # However, self.dist might use its own random_state if set.
+            # This makes it a bit complex. Simplest is to use np.random.
+            # For full control, the `dist` object should also be configured
+            # with a random_state if its rvs method is used directly.
+            # Here, we are using ppf, so np.random.uniform is the source.
+            rng = np.random.default_rng(random_state)
+            uniform_variates = rng.uniform(low=0.0, high=1.0, size=size)
+        else:
+            uniform_variates = np.random.uniform(low=0.0, high=1.0, size=size)
+            
+        return self.ppf(uniform_variates)
+
+    def support(self):
+        """Returns the support of the distribution (a, b)."""
+        return (self.a, self.b)
+
+    # --- Optional: Mean and Variance ---
+    # These require numerical integration if a closed form is not simple.
+    # Scipy provides `expect` for this.
+    
+    def _calculate_moments(self):
+        """Helper to calculate mean and variance once."""
+        if not self._moments_calculated:
+            # Mean: E[X] = integral from a to b of (x * pdf_original(x) / prob_interval) dx
+            # Variance: E[X^2] - (E[X])^2
+            # E[X^2] = integral from a to b of (x^2 * pdf_original(x) / prob_interval) dx
+            
+            # Using scipy.stats.rv_continuous.expect
+            # The 'func' argument to expect is applied to the random variable X.
+            # The expectation is taken with respect to the *original* distribution.
+            # E_trunc[g(X)] = E_orig[g(X) * I(a<=X<=b)] / P(a<=X<=b)
+            # where I is indicator function.
+            # scipy.stats.expect does: integral func(x) * pdf_original(x) dx over bounds
+            
+            # Mean
+            integrand_mean = lambda x: x 
+            # Calculate E_orig[X] but only over [a,b]
+            # This isn't directly E_trunc[X].
+            # We need E_orig[X * I(a<=X<=b)] / prob_interval
+            # which is (integral from a to b of x * pdf_orig(x) dx) / prob_interval
+
+            # Scipy's expect function for a distribution `dist` computes:
+            # integral func(x) * dist.pdf(x) dx
+            # The integration limits are taken from dist.support() unless overridden by `lb`, `ub`.
+            
+            expected_x_in_interval = self.dist.expect(func=lambda x: x, lb=self.a, ub=self.b)
+            self._mean = expected_x_in_interval / self.prob_interval
+            
+            expected_x_squared_in_interval = self.dist.expect(func=lambda x: x**2, lb=self.a, ub=self.b)
+            e_x2_truncated = expected_x_squared_in_interval / self.prob_interval
+            
+            self._var = e_x2_truncated - (self._mean**2)
+            self._moments_calculated = True
+
+    def mean(self):
+        """Calculates the mean of the truncated distribution."""
+        if not self._moments_calculated:
+            self._calculate_moments()
+        return self._mean
+
+    def var(self):
+        """Calculates the variance of the truncated distribution."""
+        if not self._moments_calculated:
+            self._calculate_moments()
+        return self._var
+
+    def __repr__(self):
+        return f"TruncatedDistribution(a={self.a}, b={self.b})"
+
+#%%
+class MixtureDistribution:
+    """
+    A class to create a two-component mixture of scipy.stats continuous distributions.
+
+    Parameters
+    ----------
+    dist1 : scipy.stats.rv_continuous
+        The first continuous distribution object (frozen, i.e., with parameters set).
+        Example: stats.norm(loc=0, scale=1)
+    dist2 : scipy.stats.rv_continuous
+        The second continuous distribution object (frozen).
+        Example: stats.expon(scale=2)
+    weight1 : float
+        The weight for the first distribution (dist1). Must be between 0 and 1.
+        The weight for the second distribution (dist2) will be (1 - weight1).
+
+    Methods
+    -------
+    pdf(x)
+        Probability density function.
+    cdf(x)
+        Cumulative distribution function.
+    ppf(q)
+        Percent point function (inverse of cdf). Requires numerical solving.
+    rvs(size=1, random_state=None)
+        Random variates.
+    mean()
+        Calculates the mean of the mixture distribution.
+    var()
+        Calculates the variance of the mixture distribution.
+    support()
+        Returns the support of the mixture distribution.
+    """
+
+    def __init__(self, dist1, dist2, weight1):
+        if not (hasattr(dist1, 'pdf') and hasattr(dist1, 'cdf') and hasattr(dist1, 'ppf') and hasattr(dist1, 'rvs') and
+                hasattr(dist2, 'pdf') and hasattr(dist2, 'cdf') and hasattr(dist2, 'ppf') and hasattr(dist2, 'rvs')):
+            raise TypeError(
+                "dist1 and dist2 must be frozen distribution objects from scipy.stats "
+                "with pdf, cdf, ppf, and rvs methods."
+            )
+        # A simple check for continuous type based on common practice for scipy.stats
+        if not (isinstance(dist1.dist, stats.rv_continuous) and isinstance(dist2.dist, stats.rv_continuous)):
+             # This check might be too strict if a custom object mimicking rv_continuous is used.
+             # A more duck-typing approach would be to check for methods.
+             print("Warning: One or both distributions might not be rv_continuous from scipy.stats.")
+
+
+        if not (0 <= weight1 <= 1):
+            raise ValueError("weight1 must be between 0 and 1 (inclusive).")
+
+        self.dist1 = dist1
+        self.dist2 = dist2
+        self.weight1 = float(weight1)
+        self.weight2 = 1.0 - self.weight1
+        
+        d1_name = getattr(getattr(self.dist1, 'dist', self.dist1), 'name', 'dist1')
+        d2_name = getattr(getattr(self.dist2, 'dist', self.dist2), 'name', 'dist2')
+        self.name = f"Mixture({self.weight1:.2f}*{d1_name}, {self.weight2:.2f}*{d2_name})"
+
+
+        # Determine support of the mixture
+        s1_a, s1_b = self.dist1.support()
+        s2_a, s2_b = self.dist2.support()
+        self._support_a = min(s1_a, s2_a)
+        self._support_b = max(s1_b, s2_b)
+
+        # Heuristic bounds for PPF root finding. These are wide fallbacks.
+        # Prefer support if finite, otherwise use component ppfs at small/large quantiles.
+        eps = 1e-9 # Small epsilon for ppf bounds
+        
+        candidate_lows = [self._support_a] # Start with support
+        d1_ppf_eps = self.dist1.ppf(eps)
+        if np.isfinite(d1_ppf_eps): candidate_lows.append(d1_ppf_eps)
+        d2_ppf_eps = self.dist2.ppf(eps)
+        if np.isfinite(d2_ppf_eps): candidate_lows.append(d2_ppf_eps)
+        self._ppf_search_lower = max(filter(np.isfinite, candidate_lows), default=-1e14)
+
+
+        candidate_highs = [self._support_b] # Start with support
+        d1_ppf_1eps = self.dist1.ppf(1-eps)
+        if np.isfinite(d1_ppf_1eps): candidate_highs.append(d1_ppf_1eps)
+        d2_ppf_1eps = self.dist2.ppf(1-eps)
+        if np.isfinite(d2_ppf_1eps): candidate_highs.append(d2_ppf_1eps)
+        self._ppf_search_upper = min(filter(np.isfinite, candidate_highs), default=1e14)
+
+        # Ensure lower < upper for search bounds
+        if self._ppf_search_lower >= self._ppf_search_upper:
+            # This can happen if supports are single points or very narrow and eps ppfs cross over.
+            # Use a minimal sensible range around the support.
+            mid_support = (self._support_a + self._support_b) / 2.0
+            if np.isfinite(mid_support):
+                self._ppf_search_lower = mid_support - 1.0
+                self._ppf_search_upper = mid_support + 1.0
+            else: # Both supports inf or -inf, use wide defaults
+                self._ppf_search_lower = -1e14
+                self._ppf_search_upper = 1e14
+
+    def pdf(self, x):
+        """Probability density function."""
+        x = np.asarray(x)
+        pdf_val = (self.weight1 * self.dist1.pdf(x) +
+                   self.weight2 * self.dist2.pdf(x))
+        return pdf_val
+
+    def cdf(self, x):
+        """Cumulative distribution function."""
+        x = np.asarray(x)
+        cdf_val = (self.weight1 * self.dist1.cdf(x) +
+                   self.weight2 * self.dist2.cdf(x))
+        return cdf_val
+
+    def _solve_ppf_scalar(self, q_scalar):
+        """Helper to solve PPF for a single scalar q using numerical root finding."""
+        if not (0 <= q_scalar <= 1):
+            # This should be caught by the public ppf method, but good to have.
+            return np.nan 
+        
+        if np.isclose(q_scalar, 0.0):
+            return self._support_a
+        if np.isclose(q_scalar, 1.0):
+            return self._support_b
+
+        func_to_solve = lambda x_val: self.cdf(x_val) - q_scalar
+
+        # Initial search bracket
+        # Use pre-calculated general bounds, refine if possible
+        a, b = self._ppf_search_lower, self._ppf_search_upper
+
+        # Attempt to make the bracket tighter and ensure it straddles the root
+        # Try component PPFs as hints for the bracket
+        ppf_vals = []
+        try: ppf_vals.append(self.dist1.ppf(q_scalar))
+        except: pass # Catch errors if ppf fails for q_scalar
+        try: ppf_vals.append(self.dist2.ppf(q_scalar))
+        except: pass
+        
+        finite_ppf_vals = [v for v in ppf_vals if np.isfinite(v)]
+        if finite_ppf_vals:
+            # Tentative bracket based on component ppfs
+            min_ppf = min(finite_ppf_vals)
+            max_ppf = max(finite_ppf_vals)
+            # Expand this tentative bracket slightly
+            delta = max(1.0, abs(max_ppf - min_ppf) * 0.1) 
+            current_a = min_ppf - delta
+            current_b = max_ppf + delta
+            
+            # Use this refined bracket if it's within the global search bounds
+            a = max(a, current_a)
+            b = min(b, current_b)
+
+        # Ensure a < b, if not, widen them
+        if a >= b:
+            a -= 1.0 # fallback to make them distinct
+            b += 1.0
+            if a >=b: # extreme case, support is likely a single point or very narrow
+                a = self._support_a -1e-6
+                b = self._support_b +1e-6
+
+
+        # Brentq requires f(a) and f(b) to have opposite signs.
+        # Adjust 'a' downwards if f(a) >= 0
+        fa = func_to_solve(a)
+        max_shrink_iters = 10
+        iter_count = 0
+        while fa >= 0 and iter_count < max_shrink_iters:
+            if np.isclose(fa,0): break # a is the root
+            a_new = a - max(1.0, abs(a * 0.5)) # Try to move 'a' significantly lower
+            if not np.isfinite(a_new) or a_new < self._support_a - 1e7: # Safety break for extreme values
+                a = max(self._support_a, -1e15) # Fallback to support or very large neg number
+                break
+            a = a_new
+            fa = func_to_solve(a)
+            iter_count += 1
+        
+        # Adjust 'b' upwards if f(b) <= 0
+        fb = func_to_solve(b)
+        iter_count = 0
+        while fb <= 0 and iter_count < max_shrink_iters:
+            if np.isclose(fb,0): break # b is the root
+            b_new = b + max(1.0, abs(b * 0.5)) # Try to move 'b' significantly higher
+            if not np.isfinite(b_new) or b_new > self._support_b + 1e7: # Safety break
+                b = min(self._support_b, 1e15) # Fallback to support or very large pos number
+                break
+            b = b_new
+            fb = func_to_solve(b)
+            iter_count +=1
+
+        try:
+            if np.isclose(fa,0): return a
+            if np.isclose(fb,0): return b
+            return scipy.optimize.brentq(func_to_solve, a, b, xtol=1e-9, rtol=1e-9, maxiter=100)
+        except ValueError:
+            # This typically means f(a) and f(b) don't have opposite signs or other brentq issue
+            # print(f"Warning: brentq failed for q={q_scalar:.4f}. Bounds [{a:.2e}, {b:.2e}], f(a)={fa:.2e}, f(b)={fb:.2e}.")
+            # Fallback or raise error
+            # A simple fallback could be nan or a weighted average of component ppfs (crude)
+            if finite_ppf_vals:
+                return self.weight1 * self.dist1.ppf(q_scalar) + self.weight2 * self.dist2.ppf(q_scalar) if len(finite_ppf_vals)==2 else finite_ppf_vals[0]
+            return np.nan
+
+
+    def ppf(self, q):
+        """Percent point function (inverse of cdf)."""
+        q_arr = np.asarray(q)
+        if np.any((q_arr < 0) | (q_arr > 1)):
+            raise ValueError("Input 'q' (quantiles) must be between 0 and 1.")
+
+        if q_arr.ndim == 0: # Scalar input
+            return self._solve_ppf_scalar(q_arr.item())
+        else: # Array input
+            results = np.empty_like(q_arr, dtype=float)
+            for i, q_scalar_val in np.ndenumerate(q_arr):
+                results[i] = self._solve_ppf_scalar(q_scalar_val)
+            return results
+
+    def rvs(self, size=1, random_state=None):
+        """Random variates."""
+        rng = np.random.default_rng(random_state)
+        
+        # Determine which distribution to sample from for each variate
+        u_choices = rng.uniform(size=size)
+        from_dist1_mask = u_choices < self.weight1
+        
+        num_from_dist1 = np.sum(from_dist1_mask)
+        num_from_dist2 = size - num_from_dist1
+        
+        samples = np.empty(size, dtype=float)
+        
+        if num_from_dist1 > 0:
+            samples[from_dist1_mask] = self.dist1.rvs(size=num_from_dist1, random_state=rng)
+        
+        if num_from_dist2 > 0:
+            # Ensure we select the correct elements for dist2 samples
+            samples[~from_dist1_mask] = self.dist2.rvs(size=num_from_dist2, random_state=rng)
+            
+        return samples
+
+    def mean(self):
+        """Calculates the mean of the mixture distribution."""
+        mean1 = self.dist1.mean()
+        mean2 = self.dist2.mean()
+        if np.isnan(mean1) or np.isnan(mean2): # If any component mean is NaN (e.g., Cauchy)
+            return np.nan
+        return self.weight1 * mean1 + self.weight2 * mean2
+
+    def var(self):
+        """Calculates the variance of the mixture distribution."""
+        mean1 = self.dist1.mean()
+        var1 = self.dist1.var()
+        
+        mean2 = self.dist2.mean()
+        var2 = self.dist2.var()
+
+        if np.isnan(mean1) or np.isnan(var1) or np.isnan(mean2) or np.isnan(var2):
+            return np.nan # If any component moment is NaN
+
+        # E[X^2] = w1 * E[X1^2] + w2 * E[X2^2]
+        # E[Xi^2] = Var(Xi) + (E[Xi])^2
+        e_x1_sq = var1 + mean1**2
+        e_x2_sq = var2 + mean2**2
+        
+        mixture_e_x_sq = self.weight1 * e_x1_sq + self.weight2 * e_x2_sq
+        
+        # Use self.mean() to avoid re-calculating means if they were stored,
+        # but here it's fine to recalculate or call self.mean()
+        current_mixture_mean = self.mean()
+        if np.isnan(current_mixture_mean): # Check if mean itself is NaN
+            return np.nan
+
+        mixture_variance = mixture_e_x_sq - current_mixture_mean**2
+        return mixture_variance
+        
+    def support(self):
+        """Returns the support of the mixture distribution (min_support, max_support)."""
+        return (self._support_a, self._support_b)
+
+    def __repr__(self):
+        d1_repr = getattr(self.dist1, '__repr__', lambda: str(self.dist1))()
+        d2_repr = getattr(self.dist2, '__repr__', lambda: str(self.dist2))()
+        return (f"MixtureDistribution(dist1={d1_repr}, \n"
+                f"                    dist2={d2_repr}, \n"
+                f"                    weight1={self.weight1:.3f})")
+
+#%% --- Example Usage ---
+if __name__ == "__main__":
+    # 1. Define an original distribution
+    original_norm = stats.norm(loc=5, scale=2) # Normal distribution with mean 5, std 2
+
+    # 2. Define truncation bounds
+    a_trunc = 3.0
+    b_trunc = 8.0
+
+    # 3. Create the truncated distribution
+    try:
+        truncated_norm = TruncatedDistribution(original_norm, a_trunc, b_trunc)
+        print(f"Created: {truncated_norm}")
+
+        # 4. Test its methods
+        x_values = np.linspace(a_trunc - 1, b_trunc + 1, 500)
+        
+        # PDF
+        pdf_vals = truncated_norm.pdf(x_values)
+        
+        # CDF
+        cdf_vals = truncated_norm.cdf(x_values)
+        
+        # PPF
+        q_values = np.array([0, 0.05, 0.25, 0.5, 0.75, 0.95, 1])
+        ppf_vals = truncated_norm.ppf(q_values)
+        print(f"\nPPF for q={q_values}:")
+        for q, p_val in zip(q_values, ppf_vals):
+            print(f"  PPF({q:.2f}) = {p_val:.4f}")
+
+        # RVS
+        num_samples = 10000
+        samples = truncated_norm.rvs(size=num_samples, random_state=42)
+        print(f"\nGenerated {num_samples} samples. Shape: {samples.shape}")
+        print(f"Sample min: {samples.min():.4f}, Sample max: {samples.max():.4f}")
+        print(f"Sample mean: {np.mean(samples):.4f}, Sample std: {np.std(samples):.4f}")
+
+        # Mean and Variance from class methods
+        print(f"\nTheoretical mean (truncated): {truncated_norm.mean():.4f}")
+        print(f"Theoretical variance (truncated): {truncated_norm.var():.4f}")
+        print(f"Theoretical std (truncated): {np.sqrt(truncated_norm.var()):.4f}")
+        print(f"Support: {truncated_norm.support()}")
+
+        # 5. Plotting
+        fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=False) # sharex=False as PPF has different x-axis
+
+        # Plot PDF
+        axs[0].plot(x_values, pdf_vals, 'r-', lw=2, label='Truncated PDF')
+        axs[0].plot(x_values, original_norm.pdf(x_values), 'b--', lw=1, alpha=0.7, label='Original PDF')
+        axs[0].fill_between(x_values, pdf_vals, where=(x_values >= a_trunc) & (x_values <= b_trunc), color='red', alpha=0.3)
+        axs[0].axvline(a_trunc, color='gray', linestyle=':', label=f'a={a_trunc}')
+        axs[0].axvline(b_trunc, color='gray', linestyle=':', label=f'b={b_trunc}')
+        axs[0].set_title(f'PDF of Truncated Normal ({original_norm.args}, a={a_trunc}, b={b_trunc})')
+        axs[0].set_ylabel('Density')
+        axs[0].legend()
+        axs[0].grid(True, linestyle='--', alpha=0.7)
+
+        # Plot CDF
+        axs[1].plot(x_values, cdf_vals, 'r-', lw=2, label='Truncated CDF')
+        axs[1].plot(x_values, original_norm.cdf(x_values), 'b--', lw=1, alpha=0.7, label='Original CDF')
+        axs[1].axvline(a_trunc, color='gray', linestyle=':')
+        axs[1].axvline(b_trunc, color='gray', linestyle=':')
+        axs[1].set_title('CDF of Truncated Normal')
+        axs[1].set_ylabel('Cumulative Probability')
+        axs[1].legend()
+        axs[1].grid(True, linestyle='--', alpha=0.7)
+        
+        # Plot PPF points and histogram of RVS
+        # For PPF, plot q_values vs ppf_vals
+        axs[2].plot(q_values, ppf_vals, 'go-', label='Truncated PPF values')
+        # Overlay histogram of generated samples
+        axs[2].hist(samples, bins=50, density=True, alpha=0.6, label=f'{num_samples} RVS samples (hist)')
+        # For comparison, plot the PDF scaled appropriately if desired (might clutter)
+        # x_for_pdf_overlay = np.linspace(a_trunc, b_trunc, 200)
+        # axs[2].plot(x_for_pdf_overlay, truncated_norm.pdf(x_for_pdf_overlay), 'r--', alpha=0.8, label='Truncated PDF (for hist scale)')
+        axs[2].set_title('PPF and Histogram of RVS')
+        axs[2].set_xlabel('Quantile (q) for PPF / Value for Histogram')
+        axs[2].set_ylabel('PPF Value / Density for Histogram')
+        axs[2].legend()
+        axs[2].grid(True, linestyle='--', alpha=0.7)
+
+
+        plt.tight_layout()
+        plt.show()
+
+        # Example with another distribution: Exponential
+        original_expon = stats.expon(scale=10) # Mean of exponential is its scale
+        a_expon, b_expon = 5, 20
+        truncated_expon = TruncatedDistribution(original_expon, a_expon, b_expon)
+        print(f"\nCreated: {truncated_expon}")
+        print(f"Mean of truncated exponential: {truncated_expon.mean():.4f}")
+        
+        samples_expon = truncated_expon.rvs(1000)
+        plt.figure(figsize=(8,5))
+        plt.hist(samples_expon, bins=30, density=True, alpha=0.7, label='Truncated Exponential RVS')
+        x_plot = np.linspace(a_expon, b_expon, 200)
+        plt.plot(x_plot, truncated_expon.pdf(x_plot), 'r-', label='Truncated Exponential PDF')
+        plt.title(f'Truncated Exponential (scale=10, a={a_expon}, b={b_expon})')
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.show()
+
+    except ValueError as e:
+        print(f"Error creating or using TruncatedDistribution: {e}")
+    except TypeError as e:
+        print(f"Type Error: {e}")
+
+#%% --- Example Usage ---
+if __name__ == "__main__":
+    # 1. Define component distributions (must be "frozen" with parameters set)
+    # Bimodal normal mixture
+    dist_comp1 = stats.norm(loc=-3, scale=1.0) 
+    dist_comp2 = stats.norm(loc=3, scale=1.5)
+    weight_1 = 0.4
+
+    # Normal and Exponential mixture
+    # dist_comp1 = stats.norm(loc=0, scale=2)
+    # dist_comp2 = stats.expon(loc=1, scale=3) # loc is shift, scale is 1/lambda (mean for expon is loc+scale)
+    # weight_1 = 0.6
+
+    # 2. Create the mixture distribution
+    mixture_dist = MixtureDistribution(dist_comp1, dist_comp2, weight_1)
+    print(mixture_dist)
+    print(f"Support of mixture: {mixture_dist.support()}")
+
+    # 3. Test its methods
+    # Define a range for plotting based on significant probability mass
+    plot_low = mixture_dist.ppf(0.0001)
+    plot_high = mixture_dist.ppf(0.9999)
+    if not (np.isfinite(plot_low) and np.isfinite(plot_high) and plot_low < plot_high) : # Fallback if ppf failed
+        plot_low = -10
+        plot_high = 10
+    x_values = np.linspace(plot_low, plot_high, 500)
+    
+    pdf_values = mixture_dist.pdf(x_values)
+    cdf_values = mixture_dist.cdf(x_values)
+    
+    print(f"\nTheoretical mean: {mixture_dist.mean():.4f}")
+    print(f"Theoretical variance: {mixture_dist.var():.4f}")
+    print(f"Theoretical std dev: {np.sqrt(mixture_dist.var()):.4f}")
+
+    # Test PPF
+    q_for_ppf = np.array([0.0, 0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.999, 1.0])
+    ppf_values_test = mixture_dist.ppf(q_for_ppf)
+    print("\nPPF Test:")
+    for q_val, x_ppf in zip(q_for_ppf, ppf_values_test):
+        if np.isfinite(x_ppf):
+            cdf_check = mixture_dist.cdf(x_ppf)
+            print(f"  PPF({q_val:.3f}) = {x_ppf:9.4f}  => CDF(x_ppf) = {cdf_check:.4f} (Error: {cdf_check-q_val:.2e})")
+        else:
+            print(f"  PPF({q_val:.3f}) = {x_ppf:9.4f}")
+
+
+    # Generate random samples
+    num_rvs_samples = 20000
+    rvs_samples = mixture_dist.rvs(size=num_rvs_samples, random_state=42)
+    print(f"\nGenerated {num_rvs_samples} samples:")
+    print(f"  Sample mean: {np.mean(rvs_samples):.4f}")
+    print(f"  Sample std dev: {np.std(rvs_samples):.4f}")
+
+    # 4. Plotting
+    fig, axs = plt.subplots(3, 1, figsize=(12, 15))
+
+    # Plot PDF and histogram of RVS
+    axs[0].plot(x_values, pdf_values, 'r-', lw=2, label='Mixture PDF')
+    axs[0].hist(rvs_samples, bins=100, density=True, alpha=0.6, label='RVS Histogram')
+    # Overlay component PDFs (weighted)
+    axs[0].plot(x_values, weight_1 * dist_comp1.pdf(x_values), 'g:', lw=1.5, alpha=0.7, label=f'w1*Comp1 PDF')
+    axs[0].plot(x_values, (1-weight_1) * dist_comp2.pdf(x_values), 'b:', lw=1.5, alpha=0.7, label=f'w2*Comp2 PDF')
+    axs[0].set_title(f'Mixture PDF and RVS\n{mixture_dist.name}')
+    axs[0].set_xlabel('x')
+    axs[0].set_ylabel('Density')
+    axs[0].legend()
+    axs[0].grid(True, linestyle='--', alpha=0.6)
+
+    # Plot CDF
+    axs[1].plot(x_values, cdf_values, 'r-', lw=2, label='Mixture CDF')
+    # Overlay component CDFs (weighted contribution, not true CDFs of components)
+    # axs[1].plot(x_values, weight_1 * dist_comp1.cdf(x_values), 'g:', lw=1, alpha=0.7, label=f'w1*Comp1 CDF term')
+    # axs[1].plot(x_values, (1-weight_1) * dist_comp2.cdf(x_values), 'b:', lw=1, alpha=0.7, label=f'w2*Comp2 CDF term')
+    axs[1].set_title('Mixture CDF')
+    axs[1].set_xlabel('x')
+    axs[1].set_ylabel('Cumulative Probability')
+    axs[1].legend()
+    axs[1].grid(True, linestyle='--', alpha=0.6)
+
+    # Plot PPF
+    axs[2].plot(q_for_ppf, ppf_values_test, 'mo-', markersize=8, label='Mixture PPF values (q vs x)')
+    axs[2].plot(cdf_values, x_values, 'c--', alpha = 0.5, label='Mixture CDF (inverted, for visual check)') # Plotting (CDF, x) should match (q, PPF(q))
+    axs[2].set_title('Mixture PPF')
+    axs[2].set_xlabel('Quantile (q)')
+    axs[2].set_ylabel('Value (x)')
+    axs[2].legend()
+    axs[2].grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.show()
+
+    # Test with Cauchy (undefined mean/var)
+    print("\n--- Testing with Cauchy component (undefined mean/var) ---")
+    cauchy_dist = stats.cauchy(loc=0, scale=0.5)
+    norm_dist_for_cauchy_mix = stats.norm(loc=5, scale=1)
+    try:
+        mixture_with_cauchy = MixtureDistribution(cauchy_dist, norm_dist_for_cauchy_mix, 0.3)
+        print(mixture_with_cauchy)
+        print(f"Support: {mixture_with_cauchy.support()}") # Should be (-inf, inf)
+        print(f"Mean: {mixture_with_cauchy.mean()}") # Should be NaN
+        print(f"Variance: {mixture_with_cauchy.var()}") # Should be NaN
+        
+        # Test PPF for Cauchy mixture
+        q_cauchy_test = np.array([0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.999])
+        ppf_cauchy_results = mixture_with_cauchy.ppf(q_cauchy_test)
+        print("\nPPF values for Cauchy mixture:")
+        for q, x_q in zip(q_cauchy_test, ppf_cauchy_results):
+             if np.isfinite(x_q):
+                  cdf_chk = mixture_with_cauchy.cdf(x_q)
+                  print(f"  PPF({q:.3f}) = {x_q:9.4f} => CDF(x_q) = {cdf_chk:.4f} (Err: {cdf_chk-q:.1e})")
+             else:
+                  print(f"  PPF({q:.3f}) = {x_q:9.4f}")
+        
+        samples_cauchy_mix = mixture_with_cauchy.rvs(size=5000, random_state=123)
+        plt.figure(figsize=(10,6))
+        # For Cauchy, need to limit histogram range due to extreme outliers
+        hist_range = (mixture_with_cauchy.ppf(0.01), mixture_with_cauchy.ppf(0.99))
+        if not (np.isfinite(hist_range[0]) and np.isfinite(hist_range[1])): hist_range = (-20,20)
+
+        plt.hist(samples_cauchy_mix, bins=100, density=True, range=hist_range, label='Cauchy Mix RVS (hist range limited)')
+        x_plot_cauchy = np.linspace(hist_range[0], hist_range[1], 400)
+        plt.plot(x_plot_cauchy, mixture_with_cauchy.pdf(x_plot_cauchy), 'r-', label='Cauchy Mix PDF')
+        plt.title(f"Mixture with Cauchy Component\n{mixture_with_cauchy.name}")
+        plt.ylim(0, max(mixture_with_cauchy.pdf(x_plot_cauchy)[np.isfinite(mixture_with_cauchy.pdf(x_plot_cauchy))])*1.1) # Adjust y-limit
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.show()
+
+    except Exception as e:
+        print(f"Error during Cauchy mixture test: {e}")
+
+#endregion -----------------------------------------------------------------------------------------
 #region Tests 1 for Importance Sampling (Toy, 1D)
 
 #%% Imports
