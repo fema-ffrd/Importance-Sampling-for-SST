@@ -16,7 +16,8 @@ import geopandas as gpd
 #region Modules
 
 #%%
-from modules.match_crs import match_crs_to_raster
+# from modules.match_crs import match_crs_to_raster
+from modules.read_catalogue import read_catalogue 
 from modules.compute_spatial_stats import get_sp_stats
 from modules.sample_storms import sample_storms
 from modules.compute_depths import compute_depths
@@ -34,53 +35,43 @@ if __name__ == '__main__':
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
     # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
-    path_storm = pathlib.Path('storm_catalogue_trinity')
     path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
     path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+    path_storm = pathlib.Path('storm_catalogue_trinity')
 
-    #%% Read storm catalogue
-    df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
-    # df_storms = df_storms.iloc[[0]] # Only choose one storm from the catalogue for constrained analysis
-
-    #%% Read watershed and domain
-    sp_watershed = gpd.read_file(path_sp_watershed)
-    sp_domain = gpd.read_file(path_sp_domain)
-
-    #%% Match crs of watershed and domain to precipitation raster
-    sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
-    sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
+    #%% Read watershed, domain, and storm catalogue
+    sp_watershed, sp_domain, df_storms = read_catalogue(path_sp_watershed, path_sp_domain, path_storm)
 
     #%% Get polygon info (bounds, centroids, ranges)
     v_watershed_stats = get_sp_stats(sp_watershed)
     v_domain_stats = get_sp_stats(sp_domain)
 
-    # #%% Set distribution for x and y
-    # # pls UPDATE this: distribution details
-    # dist_x = stats.truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
-    # dist_y = stats.truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
-
-    #%% Set number of simulations and get storm samples
+    #%% Set number of simulations
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
-    n_sim_mc_0 = 1_000_000
-    n_sim_is_1 = 100_000
+    n_sim_mc = 1_000_000
+    n_sim_is = 100_000
   
-    #%%
-    df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc_0)
-    df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is_1)
-    # df_storm_sample_is_1 = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is_1)
-
+    #%% Ground truth (Run once)
+    # Generate samples
+    df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
     df_storm_sample_mc_0.to_pickle('df_storm_sample_mc_0.pkl')
-    df_storm_sample_mc_1.to_pickle('df_storm_sample_mc_1.pkl')
-    # df_storm_sample_is_1.to_pickle('df_storm_sample_is_1.pkl')
 
-    #%% Run simulations and get depths
+    # Run simulations and get depths
     df_depths_mc_0 = compute_depths(df_storm_sample_mc_0, sp_watershed)
-    df_depths_mc_1 = compute_depths(df_storm_sample_mc_1, sp_watershed)
-    # df_depths_is_1 = compute_depths(df_storm_sample_is_1, sp_watershed)
-
     df_depths_mc_0.to_pickle('df_depths_mc_0.pkl')
+
+
+
+    # The following lines create baseline Monte Carlo Results
+
+    #%% Get baseline Monte Carlo Results
+    # Generate samples
+    df_storm_sample_mc_1 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
+    df_storm_sample_mc_1.to_pickle('df_storm_sample_mc_1.pkl')
+
+    # Run simulations and get depths
+    df_depths_mc_1 = compute_depths(df_storm_sample_mc_1, sp_watershed)
     df_depths_mc_1.to_pickle('df_depths_mc_1.pkl')
-    # df_depths_is_1.to_pickle('df_depths_is_1.pkl')
 
 
 
@@ -88,8 +79,6 @@ if __name__ == '__main__':
 
     #%% Truncated Normal Distribution
     # pls UPDATE this: standard deviations for importance sampling with TruncNorm
-    n_sim_is = 100_000
-
     for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
         print (f'Running for mult_std = {mult_std}')
         dist_x = stats.truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
@@ -105,8 +94,6 @@ if __name__ == '__main__':
 
     #%% Truncated Generalized Normal Distribution
     # pls UPDATE this: beta values for importance sampling with TruncGeoNorm
-    n_sim_is = 100_000
-
     for beta in [3, 5, 10]:
         print (f'Running for beta = {beta}')
         dist_x = TruncatedGeneralizedNormal(
@@ -134,8 +121,6 @@ if __name__ == '__main__':
 
     #%% Truncated T Distribution
     # pls UPDATE this: standard deviations and degree of freedom for importance sampling with Truncated T-distribution
-    n_sim_is = 100_000
-
     for mult_std in [0.25, 0.5, 0.75, 1]:
         for dof in [5, 10]:
             print (f'Running for mult_std = {mult_std}, dof = {dof}')
@@ -152,8 +137,6 @@ if __name__ == '__main__':
 
     #%% TruncNorm + Uniform Distribution
     # pls UPDATE this: standard deviations and weight for importance sampling with TruncNorm + Uniform
-    n_sim_is = 100_000
-
     for mult_std in [0.25, 0.5, 0.75, 1]:
         for w1 in [0.1, 0.2]:
             print (f'Running for mult_std = {mult_std}, alpha = {w1}')
@@ -178,14 +161,11 @@ if __name__ == '__main__':
 
 
 
-
-
-
     # The following lines read the results from before and evaluate the results
 
     #%% Read number of simulations
-    n_sim_mc_0 = 1_000_000
-    n_sim_is_1 = 100_000
+    n_sim_mc = 1_000_000
+    n_sim_is = 100_000
 
     #%% Read Monte Carlo Results
     df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
@@ -289,9 +269,9 @@ if __name__ == '__main__':
     #%% Plot frequency curves
     g = \
     (pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
-        + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc_0/1000}k)"'), size=0.1)
-        + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is_1/1000}k)"'), size=0.1)
-        + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is_1/1000}k)"'), size=0.1)
+        + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc/1000}k)"'), size=0.1)
+        + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is/1000}k)"'), size=0.1)
+        + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is/1000}k)"'), size=0.1)
         + pn.scale_x_log10()
         + pn.labs(
             x = 'Exceedence Probability',
@@ -366,13 +346,5 @@ if __name__ == '__main__':
     )
     print(g)
     # g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
-
-#endregion -----------------------------------------------------------------------------------------
-#region Temp
-
-#%%
-df_depths_mc_0
-
-
 
 #endregion -----------------------------------------------------------------------------------------
