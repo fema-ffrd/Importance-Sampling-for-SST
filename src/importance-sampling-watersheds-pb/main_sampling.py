@@ -224,9 +224,9 @@ if __name__ == '__main__':
     # choice_dist = 'TruncT'
     # import itertools
     # for choice_param_value, choice_param_value_2 in itertools.product([0.25, 0.5, 0.75, 1], [5, 10]):
-choice_dist = 'TruncNorm_Unif'
-import itertools
-for choice_param_value, choice_param_value_2 in itertools.product([0.25, 0.5, 0.75, 1], [0.1, 0.2]):
+    # choice_dist = 'TruncNorm_Unif'
+    # import itertools
+    # for choice_param_value, choice_param_value_2 in itertools.product([0.25, 0.5, 0.75, 1], [0.1, 0.2]):
 
     if choice_dist == 'TruncNorm':
         mult_std = choice_param_value
