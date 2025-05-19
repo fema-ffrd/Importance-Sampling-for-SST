@@ -29,13 +29,26 @@ from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 if __name__ == '__main__':
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
+    os.chdir(r'data/1_interim/Kanawha_interim')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
     # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
     path_storm = pathlib.Path('storm_catalogue_trinity')
-    path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
-    path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+    path_sp_watershed = r"data/0_source/Kanawha/kanawha-basin.geojson"
+    path_sp_domain = r"data/0_source/Kanawha/kanawha-transpo-area-v01.geojson"
+
+
+    # path_storm = pathlib.Path('storm_catalogue_trinity')
+    # path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+    # path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+
+
+
+
+
+
+
+
 
     #%% Read storm catalogue
     df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
