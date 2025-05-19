@@ -16,8 +16,9 @@ import geopandas as gpd
 #region Modules
 
 #%%
-from modules.sample_storms import get_sp_stats, sample_storms
-from modules.compute_raster_stats import match_crs_to_raster
+from modules.match_crs import match_crs_to_raster
+from modules.compute_spatial_stats import get_sp_stats
+from modules.sample_storms import sample_storms
 from modules.compute_depths import compute_depths
 from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
 from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
