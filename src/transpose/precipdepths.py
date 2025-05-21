@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-from transpose import transpose_gdf
+from .transposer import transpose_gdf
 from utils import raster_zonal_mean
 
 def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame, shift: Literal['watershed', 'storm', 'best'] = 'watershed') -> pd.DataFrame:

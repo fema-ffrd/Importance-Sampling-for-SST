@@ -4,6 +4,8 @@ import pandas as pd
 from scipy.stats import uniform
 import geopandas as gpd
 from pyDOE2 import lhs
+from scipy.stats import uniform
+from scipy.stats import truncnorm
 
 def sample_storm_centers(v_domain_stats: pd.Series, dist_x=None, dist_y=None, num_simulations=10000):
     if dist_x is None:
@@ -163,3 +165,45 @@ def sample_storms_lhs_equally(df_storms: pd.DataFrame, v_domain_stats: pd.Series
     )
 
     return df_storm_sample
+
+
+def sample_uniform_centers(v_domain_stats: pd.Series, num_simulations: int) -> pd.DataFrame:
+    dist_x = uniform(v_domain_stats.minx, v_domain_stats.range_x)
+    dist_y = uniform(v_domain_stats.miny, v_domain_stats.range_y)
+
+    v_centroid_x = dist_x.rvs(num_simulations)
+    v_centroid_y = dist_y.rvs(num_simulations)
+
+    return pd.DataFrame({
+        'x_sampled': v_centroid_x,
+        'y_sampled': v_centroid_y,
+        'weight': 1.0,
+        'prob': 1.0 / num_simulations
+    })
+
+def sample_truncated_normal_centers(v_domain_stats: pd.Series, dist_x, dist_y, num_simulations: int) -> pd.DataFrame:
+
+    # Sample from proposal (truncated normal)
+    x_sampled = dist_x.rvs(num_simulations)
+    y_sampled = dist_y.rvs(num_simulations)
+
+    # Evaluate PDF under target (uniform) and proposal (truncnorm)
+    f_x_uniform = 1 / v_domain_stats.range_x
+    f_y_uniform = 1 / v_domain_stats.range_y
+
+    f_x_trunc = dist_x.pdf(x_sampled)
+    f_y_trunc = dist_y.pdf(y_sampled)
+
+    # Compute importance weights: p(x)/q(x)
+    weights = (f_x_uniform * f_y_uniform) / (f_x_trunc * f_y_trunc)
+    weights = np.where((f_x_trunc > 0) & (f_y_trunc > 0), weights, 0.0)
+
+    # Normalize weights to get probabilities
+    weights_norm = weights / np.sum(weights)
+
+    return pd.DataFrame({
+        'x_sampled': x_sampled,
+        'y_sampled': y_sampled,
+        'weight': weights,
+        'prob': weights_norm
+    })
