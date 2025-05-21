@@ -24,6 +24,10 @@ def print_sim_stats(df_depths: pd.DataFrame, multiplier: float=1) -> None:
     prob_total = df_depths.prob.sum()
     prob_intersected = df_depths.loc[lambda _: _.intersected == 1].prob.sum()
 
+    weight_sum = df_depths.weight.sum()
+
+    weight_sum_to_n_sim = weight_sum/n_sim
+
     df_depths = \
     (df_depths
         .assign(x_px = lambda _: _.depth * _.prob)
@@ -36,16 +40,25 @@ def print_sim_stats(df_depths: pd.DataFrame, multiplier: float=1) -> None:
     std = np.sqrt(df_depths.x_mx_px.sum())
     standard_error = std/np.sqrt(n_sim)
 
-    depth_weighted = df_depths.depth * df_depths.weight
-    mean_estimate = np.mean(depth_weighted)
-    std_estimate = np.std(depth_weighted, ddof=1) # Sample std dev of h(x)*w(x)
-    standard_error_estimate = std_estimate / np.sqrt(n_sim)
+    # depth_weighted_n = df_depths.depth * df_depths.weight
+    # mean_estimate_n = np.sum(depth_weighted_n)/df_depths.weight.sum()
+    # standard_error_estimate_n = np.sqrt(np.sum(((df_depths.depth - mean_estimate_n)**2 * df_depths.weight)))/df_depths.weight.sum()
+
+    depth_weighted_n = df_depths.depth * df_depths.prob
+    mean_estimate_n = np.sum(depth_weighted_n)
+    standard_error_estimate_n = np.sqrt(np.sum((df_depths.depth - mean_estimate_n)**2 * df_depths.prob))
+
+    depth_weighted_un = df_depths.depth * df_depths.weight
+    mean_estimate_un = np.mean(depth_weighted_un)
+    std_estimate_un = np.std(depth_weighted_un, ddof=1) # Sample std dev of h(x)*w(x)
+    standard_error_estimate_un = std_estimate_un / np.sqrt(n_sim)
 
     print(
         f'Intersected: {n_sim_intersect} out of {n_sim} ({rate_success:.2f}%)\n'
         + f'Total Weights: Total {prob_total: .2f}, Intersected: {prob_intersected:.2f}\n'
-        + f'Depth: {mean*multiplier:.2f} ± {standard_error*multiplier:.2f}\n'
-        + f'Depth Estimate: {mean_estimate*multiplier:.2f} ± {standard_error_estimate*multiplier:.2f}'
+        + f'Weight sum/N simulations: {weight_sum_to_n_sim}'
+        + f'Depth Estimate (self-normalized): {mean_estimate_n*multiplier:.2f} ± {standard_error_estimate_n*multiplier:.2f}\n'
+        + f'Depth Estimate (non-normalized): {mean_estimate_un*multiplier:.2f} ± {standard_error_estimate_un*multiplier:.2f}'
     )
 
 #%% Create probability dataframe from depths (sorted) and weights (sorted)
@@ -89,19 +102,22 @@ def get_prob(df_depths: pd.DataFrame, greater_than: list = None,  greater_than_i
                         If False, condition is depth < less_than.
     '''
     v_depth = df_depths.depth
-    v_weight = df_depths.weight
+    # v_weight = df_depths.weight
+    v_prob = df_depths.prob
     if greater_than is not None:
         if greater_than_incl:
             indicator = (v_depth >= greater_than)
         else:
             indicator = (v_depth > greater_than)
-        prob_greater_than = np.mean(indicator * v_weight)
+        # prob_greater_than = np.mean(indicator * v_weight)
+        prob_greater_than = np.sum(indicator * v_prob)
     if less_than is not None:
         if less_than_incl:
-            indicator = (v_depth <= greater_than)
+            indicator = (v_depth <= less_than)
         else:
-            indicator = (v_depth < greater_than)
-        prob_less_than = np.mean(indicator * v_weight)
+            indicator = (v_depth < less_than)
+        # prob_less_than = np.mean(indicator * v_weight)
+        prob_less_than = np.sum(indicator * v_prob)
 
     if greater_than is not None and less_than is not None:
         prob = prob_less_than - prob_greater_than

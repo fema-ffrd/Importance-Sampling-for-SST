@@ -50,7 +50,9 @@ if __name__ == '__main__':
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
     n_sim_mc = 1_000_000
     n_sim_is = 100_000
-  
+
+
+
     #%% Ground truth (Run once)
     # Generate samples
     df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
