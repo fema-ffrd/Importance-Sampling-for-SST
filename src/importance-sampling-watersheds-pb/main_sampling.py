@@ -179,21 +179,25 @@ if __name__ == '__main__':
     #%% Read IS Results
     # pls UPDATE this: which distribution/parameter combo to use
     # choice_dist = 'TruncNorm'
-    # choice_param_value = 0.75
+    # choice_param_value = 1.5
     # choice_param_name = 'std'
+    # choice_param_value_2 = None
+    # choice_param_name_2 = None
     # choice_dist = 'TruncGenNorm'
     # choice_param_value = 3
     # choice_param_name = 'beta'
+    # choice_param_value_2 = None
+    # choice_param_name_2 = None
     # choice_dist = 'TruncT'
     # choice_param_value = 1
     # choice_param_name = 'std'
     # choice_param_value_2 = 5
-    # choice_param_name = 'dof'
+    # choice_param_name_2 = 'dof'
     choice_dist = 'TruncNorm_Unif'
-    choice_param_value = 0.75
+    choice_param_value = 0.5
     choice_param_name = 'std'
     choice_param_value_2 = 0.1
-    choice_param_name = 'weight'
+    choice_param_name_2 = 'weight'
 
     # choice_dist = 'TruncNorm'
     # choice_param_name = 'std'
@@ -261,7 +265,7 @@ if __name__ == '__main__':
         + pn.theme_bw()
     )
     # print(g)
-    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_value_2}.png', width=10, height=7)
+    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_name_2}_{choice_param_value_2}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -290,7 +294,7 @@ if __name__ == '__main__':
         )
     )
     # print(g)
-    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_value_2}.png', width=10, height=7)
+    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_name_2}_{choice_param_value_2}.png', width=10, height=7)
 
 
 

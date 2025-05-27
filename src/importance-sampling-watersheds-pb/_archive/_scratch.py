@@ -1698,6 +1698,426 @@ else:
     print("IS (Mix) Effective Sample Size (ESS): N/A (mean weight is zero)")
 
 #endregion -----------------------------------------------------------------------------------------
+#region Tests 3 for Importance Sampling (Toy, 1D)
+
+#%%
+import numpy as np
+from scipy.stats import norm
+
+# --- Define the problem ---
+# 1. Target distribution p(x)
+p_mean = 2.0
+p_std = 1.0
+p_dist = norm(loc=p_mean, scale=p_std)
+
+# 2. Proposal distribution q(x)
+q_mean = 0.0
+q_std = 2.0
+q_dist = norm(loc=q_mean, scale=q_std)
+
+# 3. Function of interest f(x)
+def f(x):
+    return x**2
+
+# --- Importance Sampling Parameters ---
+N = 10000  # Number of samples
+
+# --- Generate Samples from Proposal q(x) ---
+# X_i ~ q(x)
+samples_X = q_dist.rvs(size=N)
+
+# --- Calculate f(X_i) ---
+fx_values = f(samples_X)
+
+# --- Calculate Importance Weights w(X_i) = p(X_i) / q(X_i) ---
+# In this example, p and q are fully known and normalized,
+# so these are the 'true' weights w_i.
+# If p_tilde was unnormalized, these would be w_tilde_i.
+p_pdf_values = p_dist.pdf(samples_X)
+q_pdf_values = q_dist.pdf(samples_X)
+
+# Avoid division by zero if a sample falls in an extremely unlikely region for q
+# (though for Gaussians this is less of an issue unless samples are astronomical)
+q_pdf_values[q_pdf_values == 0] = 1e-100 # A very small number to prevent NaN/Inf
+weights = p_pdf_values / q_pdf_values
+
+# --- 1. Basic (Unnormalized) Importance Sampling Estimator ---
+# This is appropriate because our p_dist.pdf and q_dist.pdf are normalized.
+# mu_hat_IS = (1/N) * Σ [f(X_i) * w(X_i)]
+terms_is = fx_values * weights
+mu_hat_is = np.mean(terms_is)
+
+# Standard Error for mu_hat_IS
+# SE_hat(mu_hat_IS) = sqrt[ (1/(N(N-1))) * Σ (f(X_i)w(X_i) - mu_hat_IS)^2 ]
+# Or, equivalently, std(terms_is) / sqrt(N)
+# np.var(terms_is, ddof=1) gives the sample variance: (1/(N-1)) * Σ (term_i - mean(terms))^2
+variance_of_terms_is = np.var(terms_is, ddof=1) # Sample variance of Y_i = f(X_i)w(X_i)
+var_mu_hat_is = variance_of_terms_is / N          # Variance of the mean
+se_mu_hat_is = np.sqrt(var_mu_hat_is)
+
+# --- 2. Self-Normalized (Weighted) Importance Sampling Estimator ---
+# mu_hat_SNIS = [ Σ f(X_i) * w_tilde(X_i) ] / [ Σ w_tilde(X_i) ]
+# Here, w_tilde(X_i) is the same as w(X_i) because p and q were normalized.
+# If p_dist.pdf was unnormalized p_tilde, then 'weights' would be w_tilde.
+sum_weighted_fx = np.sum(fx_values * weights)
+sum_weights = np.sum(weights)
+
+if sum_weights == 0: # Should not happen with proper q and non-zero N
+    mu_hat_snis = np.nan
+    se_mu_hat_snis = np.nan
+else:
+    mu_hat_snis = sum_weighted_fx / sum_weights
+
+    # Standard Error for mu_hat_SNIS
+    # A common formula (derived from delta method or ratio estimator theory):
+    # Var_hat(μ_hat_SNIS) ≈ [ N / (N-1) ] * [ Σ (w_i * (f(X_i) - μ_hat_SNIS))^2 ] / (Σ w_j)^2
+    # For large N, N/(N-1) ≈ 1.
+    # Let's use the formula with N/(N-1) for better small-N accuracy.
+    
+    # Numerator terms for variance calculation
+    var_terms_snis = (weights * (fx_values - mu_hat_snis))**2
+    numerator_var_snis = np.sum(var_terms_snis)
+    denominator_var_snis = sum_weights**2
+
+    if N > 1 and denominator_var_snis > 0:
+        # The N/(N-1) factor here is to make the variance estimate unbiased for the *linearized* variable.
+        # Some texts present it as (1/ (sum_weights^2)) * sum (w_i * (f(X_i) - mu_hat_SNIS))^2 * (1/(N-1)) * N
+        # which simplifies to the N/(N-1) factor or simply using N in the sum if N is large.
+        # A more direct variance for a weighted mean (often seen):
+        # sum_sq_weighted_deviations = np.sum( (weights * (fx_values - mu_hat_snis))**2 )
+        # var_mu_hat_snis_approx = sum_sq_weighted_deviations / (sum_weights**2)
+        # However, the formula below is generally preferred for ratio estimators.
+
+        # Let's use the formula that often appears, which is equivalent to
+        # var_hat(mu_hat_snis) = (1/N) * (1/(N-1)) * sum_i (N * w_i_norm * (f(x_i) - mu_hat_snis) )^2
+        # where w_i_norm = w_i / sum(w_j). More directly from books:
+        
+        var_mu_hat_snis = (N / (N - 1.0)) * numerator_var_snis / denominator_var_snis
+        # An alternative formulation, which might be more intuitive if you think about
+        # the "effective" number of samples and the variance of the weighted terms:
+        # Var(mu_hat_snis) ~= (1/sum_weights^2) * Sum_i [ w_i^2 * (f(x_i) - mu_hat_snis)^2 ]
+        # This is actually related to the formula used (especially for large N).
+        # The (N/(N-1)) factor helps for smaller N.
+
+        # Simpler version for large N (often used in practice):
+        # var_mu_hat_snis_large_N = numerator_var_snis / denominator_var_snis
+        
+        se_mu_hat_snis = np.sqrt(var_mu_hat_snis)
+        
+        # Alternative common form for SE (often seen as an approximation):
+        # se_mu_hat_snis_alt = np.sqrt(np.sum( ((weights / sum_weights) * (fx_values - mu_hat_snis))**2 ))
+        # print(f"Alternative SE (SNIS): {se_mu_hat_snis_alt:.6f}") # Often very close
+    else:
+        se_mu_hat_snis = np.nan
+
+
+# --- Effective Sample Size (ESS) ---
+# ESS ≈ (Σ w_tilde_i)^2 / Σ (w_tilde_i^2)
+# Here, w_tilde_i are our 'weights'
+if sum_weights == 0 or np.sum(weights**2) == 0:
+    ess = 0
+else:
+    ess = (sum_weights**2) / np.sum(weights**2)
+
+# --- Output Results ---
+true_value = p_mean**2 + p_std**2 # E_p[X^2] = mu_p^2 + sigma_p^2
+print(f"--- Importance Sampling Results (N={N}) ---")
+print(f"True Expected Value E_p[f(X)]: {true_value:.4f}")
+print("-" * 40)
+
+print("1. Unnormalized Importance Sampling:")
+print(f"   Estimate (mu_hat_IS):      {mu_hat_is:.4f}")
+print(f"   Standard Error (SE_IS):    {se_mu_hat_is:.4f}")
+if se_mu_hat_is > 0:
+    print(f"   Approx. 95% CI (IS):     [{mu_hat_is - 1.96*se_mu_hat_is:.4f}, {mu_hat_is + 1.96*se_mu_hat_is:.4f}]")
+print("-" * 40)
+
+print("2. Self-Normalized Importance Sampling:")
+print(f"   Estimate (mu_hat_SNIS):    {mu_hat_snis:.4f}")
+print(f"   Standard Error (SE_SNIS):  {se_mu_hat_snis:.4f}")
+if not np.isnan(se_mu_hat_snis) and se_mu_hat_snis > 0:
+    print(f"   Approx. 95% CI (SNIS):   [{mu_hat_snis - 1.96*se_mu_hat_snis:.4f}, {mu_hat_snis + 1.96*se_mu_hat_snis:.4f}]")
+print("-" * 40)
+
+print(f"Effective Sample Size (ESS): {ess:.2f} (out of {N} samples)")
+if ess < N / 10:
+    print("Warning: ESS is significantly lower than N. Weights might be highly skewed.")
+
+#endregion -----------------------------------------------------------------------------------------
+#region Tests 4 for Importance Sampling (Toy, 1D)
+
+#%%
+import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+from statsmodels.stats.weightstats import DescrStatsW # For weighted quantiles and CDF
+
+# Set a seed for reproducibility
+np.random.seed(42)
+
+#%%
+# --- 1. Define f(x) and p(x) ---
+# def f(x):
+#     """Target function to integrate."""
+#     # return np.exp(-(x - 9)**2 / (2 * 0.5**2))
+#     return stats.norm(8.8, 0.22).pdf(x)
+
+# f(x) is peaked at c, zero elsewhere
+p_lower_bound = 0
+p_upper_bound = 10
+c_val = 8.8 # Renamed from 'c' to avoid conflict with ECDF variable
+f_peak_width = 0.5  # Controls how wide the non-zero part of f(x) is
+f_active_half_width = 1.5 # f(x) will be non-zero in [c-f_active_half_width, c+f_active_half_width]
+
+def f(x_arr):
+    x_arr = np.asarray(x_arr)
+    y = np.exp(-((x_arr - c_val)**2) / (2 * f_peak_width**2))
+    condition = (x_arr >= p_lower_bound) & (x_arr <= p_upper_bound)
+    return np.where(condition, y, 0.0)
+
+#%% Define p(x)
+# p(x) is U(0, 10)
+p_lower_bound = 0
+p_upper_bound = 10
+def p_pdf(x):
+    """PDF of the target distribution p(x) = U(0, 10)."""
+    return stats.uniform.pdf(x, loc=p_lower_bound, scale=p_upper_bound - p_lower_bound)
+
+def p_rvs(size):
+    """Sample from p(x)."""
+    return stats.uniform.rvs(loc=p_lower_bound, scale=p_upper_bound - p_lower_bound, size=size)
+
+#%%
+# --- 2. Ground Truth (using a very large number of MC samples) ---
+N_ground_truth = 5 * 10**6
+samples_gt = p_rvs(N_ground_truth)
+f_values_gt = f(samples_gt)
+ground_truth_mean = np.mean(f_values_gt)
+ground_truth_std_err = np.std(f_values_gt) / np.sqrt(N_ground_truth)
+
+print(f"--- Ground Truth Estimation (N={N_ground_truth}) ---")
+print(f"Estimated Mean: {ground_truth_mean:.6f}")
+print(f"Estimated Std Error of Mean: {ground_truth_std_err:.6f}")
+
+# #%%
+# # Analytical ground truth (for this specific f(x) and p(x))
+# # I = (1/10) * integral_0^10 exp(-(x-9)^2/(2*0.5^2)) dx
+# # Let y = (x-9)/0.5, dy = dx/0.5
+# # I = (1/10) * 0.5 * integral_(-18)^(2) exp(-y^2/2) dy
+# # I = (0.5/10) * sqrt(2*pi) * [Phi(2) - Phi(-18)]
+# # where Phi is the CDF of standard normal.
+# analytical_gt = (0.5/10) * np.sqrt(2*np.pi) * (stats.norm.cdf(2) - stats.norm.cdf(-18))
+# print(f"Analytical Ground Truth Mean: {analytical_gt:.6f}\n")
+# # Use analytical as the reference for true value.
+# ground_truth_mean = analytical_gt
+
+#%%
+# --- 3. Monte Carlo (MC) Simulation ---
+N_comparison = 1000  # Number of samples for MC and IS comparison
+
+print(f"--- Standard Monte Carlo (N={N_comparison}) ---")
+samples_mc = p_rvs(N_comparison)
+f_values_mc = f(samples_mc)
+
+mean_mc = np.mean(f_values_mc)
+std_err_mc = np.std(f_values_mc, ddof=1) / np.sqrt(N_comparison) # ddof=1 for sample std dev
+
+print(f"Mean (MC): {mean_mc:.6f}")
+print(f"Std Error of Mean (MC): {std_err_mc:.6f}")
+
+#%%
+# --- 4. Importance Sampling (IS) with Truncated Normal ---
+# Define proposal distribution q(x): Truncated Normal
+q_mean = 8.8      # Center q where f(x) is large
+q_std = 0.8       # Standard deviation of q
+q_lower_bound = 0 # Truncation bounds for q (same as p's support)
+q_upper_bound = 10
+
+# Parameters for scipy.stats.truncnorm (a, b are for std normal)
+a = (q_lower_bound - q_mean) / q_std
+b = (q_upper_bound - q_mean) / q_std
+q_dist = stats.truncnorm(a, b, loc=q_mean, scale=q_std)
+
+def q_pdf(x):
+    return q_dist.pdf(x)
+
+def q_rvs(size):
+    return q_dist.rvs(size)
+
+print(f"\n--- Importance Sampling (N={N_comparison}) ---")
+samples_is = q_rvs(N_comparison) # Samples from q(x)
+
+# Ensure samples are within the support of p (they should be by q's truncation)
+samples_is = np.clip(samples_is, p_lower_bound, p_upper_bound)
+
+f_values_is = f(samples_is)
+p_x_is = p_pdf(samples_is)
+q_x_is = q_pdf(samples_is)
+
+# Importance weights
+weights_is = p_x_is / q_x_is
+weights_is[q_x_is == 0] = 0 # Handle potential division by zero if q_pdf can be 0
+
+# Self-normalized importance sampling estimator
+mean_is = np.sum(weights_is * f_values_is) / np.sum(weights_is)
+
+# Standard error for self-normalized IS
+# Var_hat(μ_hat_SNIS) = Sum[(w_i * (f(x_i) - μ_hat_SNIS))^2] / (Sum[w_j])^2
+var_is_num = np.sum((weights_is * (f_values_is - mean_is))**2)
+var_is_den = (np.sum(weights_is))**2
+var_is_estimator = var_is_num / var_is_den # This is the variance of the estimator
+std_err_is = np.sqrt(var_is_estimator)
+
+print(f"Mean (IS): {mean_is:.6f}")
+print(f"Std Error of Mean (IS): {std_err_is:.6f}")
+
+# Effective Sample Size (ESS)
+ess_is = (np.sum(weights_is))**2 / np.sum(weights_is**2)
+print(f"Effective Sample Size (ESS): {ess_is:.2f} (out of {N_comparison})")
+print(f"Variance Reduction Factor (approx Var_MC/Var_IS): {(std_err_mc**2) / (std_err_is**2):.2f}")
+
+#%%
+# --- 5. Quantiles and their Standard Errors (using Bootstrap) ---
+N_bootstrap = 1000
+quantiles_to_calc = [0.25, 0.50, 0.75]
+
+def bootstrap_quantiles(data, weights=None, quantiles=None, n_bootstrap=1000):
+    if quantiles is None:
+        quantiles = [0.25, 0.5, 0.75]
+    n_samples = len(data)
+    bootstrap_quantile_estimates = np.zeros((n_bootstrap, len(quantiles)))
+
+    for i in range(n_bootstrap):
+        indices = np.random.choice(n_samples, size=n_samples, replace=True)
+        resampled_data = data[indices]
+        if weights is not None:
+            resampled_weights = weights[indices]
+            # Normalize weights for stability in DescrStatsW for each bootstrap sample
+            # if np.sum(resampled_weights) > 1e-9: # Avoid division by zero if all weights are zero
+            #     norm_resampled_weights = resampled_weights / np.sum(resampled_weights)
+            # else:
+            #     norm_resampled_weights = np.ones_like(resampled_weights) / len(resampled_weights)
+            # No, DescrStatsW handles raw weights correctly.
+            
+            descr_stats = DescrStatsW(resampled_data, weights=resampled_weights, ddof=0)
+            bootstrap_quantile_estimates[i, :] = descr_stats.quantile(quantiles)
+        else:
+            bootstrap_quantile_estimates[i, :] = np.quantile(resampled_data, quantiles)
+
+    mean_q = np.mean(bootstrap_quantile_estimates, axis=0)
+    std_err_q = np.std(bootstrap_quantile_estimates, axis=0, ddof=1)
+    return mean_q, std_err_q # Returns means of bootstrapped quantiles and their SEs
+
+# MC Quantiles
+# For MC, we are interested in quantiles of f(X) where X ~ p(x)
+# So we directly use f_values_mc
+q_mc_direct = np.quantile(f_values_mc, quantiles_to_calc)
+_, se_q_mc = bootstrap_quantiles(f_values_mc, quantiles=quantiles_to_calc, n_bootstrap=N_bootstrap)
+print("\n--- Quantiles (MC) for f(X) where X ~ p(x) ---")
+for q_val, q_direct, q_se in zip(quantiles_to_calc, q_mc_direct, se_q_mc):
+    print(f"MC Q{int(q_val*100)}: {q_direct:.4f} (SE: {q_se:.4f})")
+
+
+# IS Quantiles
+# For IS, we want quantiles of f(X) where X ~ p(x), estimated using samples from q(x)
+# We use f_values_is and weights_is
+descr_stats_is = DescrStatsW(f_values_is, weights=weights_is, ddof=0) # ddof=0 for population quantiles
+q_is_direct = descr_stats_is.quantile(quantiles_to_calc)
+_, se_q_is = bootstrap_quantiles(f_values_is, weights=weights_is, quantiles=quantiles_to_calc, n_bootstrap=N_bootstrap)
+
+print("\n--- Quantiles (IS) for f(X) where X ~ p(x) ---")
+for q_val, q_direct, q_se in zip(quantiles_to_calc, q_is_direct, se_q_is):
+    print(f"IS Q{int(q_val*100)}: {q_direct:.4f} (SE: {q_se:.4f})")
+
+# Ground truth quantiles (from large MC run)
+q_gt_direct = np.quantile(f_values_gt, quantiles_to_calc)
+print("\n--- Quantiles (Ground Truth) for f(X) where X ~ p(x) ---")
+for q_val, q_direct in zip(quantiles_to_calc, q_gt_direct):
+    print(f"GT Q{int(q_val*100)}: {q_direct:.4f}")
+
+
+# --- 6. Plot CDFs ---
+# We want to plot the CDF of f(X) where X ~ p(x)
+
+# Ground truth CDF (from large N MC samples)
+stats_gt_cdf = DescrStatsW(f_values_gt, ddof=0) # No weights, effectively uniform
+x_gt_cdf, y_gt_cdf = stats_gt_cdf.ecdf()
+
+# MC CDF
+stats_mc_cdf = DescrStatsW(f_values_mc, ddof=0) # No weights
+x_mc_cdf, y_mc_cdf = stats_mc_cdf.ecdf()
+
+# IS CDF (weighted)
+stats_is_cdf = DescrStatsW(f_values_is, weights=weights_is, ddof=0)
+x_is_cdf, y_is_cdf = stats_is_cdf.ecdf()
+
+
+plt.figure(figsize=(12, 8))
+plt.plot(x_gt_cdf, y_gt_cdf, label=f'Ground Truth CDF (N={N_ground_truth})', color='black', linestyle='--')
+plt.plot(x_mc_cdf, y_mc_cdf, label=f'MC CDF (N={N_comparison})', color='blue', alpha=0.7)
+plt.plot(x_is_cdf, y_is_cdf, label=f'IS CDF (N={N_comparison}, ESS={ess_is:.0f})', color='red', alpha=0.7)
+
+plt.title('Cumulative Distribution Function of f(X)')
+plt.xlabel('f(x) values')
+plt.ylabel('CDF F(f(x))')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# --- 7. Diagnostics Plots ---
+plt.figure(figsize=(15, 5))
+
+# Plot 1: f(x), p(x), q(x)
+plt.subplot(1, 3, 1)
+x_plot = np.linspace(0, 10, 500)
+y_f = f(x_plot)
+y_p = p_pdf(x_plot)
+y_q = q_pdf(x_plot)
+
+plt.plot(x_plot, y_f, label='f(x) (target function)', color='green')
+plt.plot(x_plot, y_p, label='p(x) (target density U(0,10))', color='blue', linestyle=':')
+plt.plot(x_plot, y_q, label='q(x) (proposal density)', color='red', linestyle='--')
+# For scaling, normalize f(x) to fit on graph with densities
+# plt.plot(x_plot, y_f / np.max(y_f) * np.max(y_q), label='f(x) (scaled)', color='green', linestyle='-.')
+
+plt.title('Function and Densities')
+plt.xlabel('x')
+plt.ylabel('Value / Density')
+plt.legend()
+plt.grid(True)
+
+# Plot 2: IS Weights
+plt.subplot(1, 3, 2)
+# Sort by sample value for a more intuitive plot, though scatter is fine too
+sorted_indices_is = np.argsort(samples_is)
+plt.scatter(samples_is[sorted_indices_is], weights_is[sorted_indices_is], alpha=0.5, s=10)
+# For better visualization if weights vary a lot:
+# plt.semilogy(samples_is[sorted_indices_is], weights_is[sorted_indices_is], 'o', alpha=0.5, markersize=3)
+plt.title('Importance Weights w(x_i) = p(x_i)/q(x_i)')
+plt.xlabel('x_i ~ q(x)')
+plt.ylabel('Weight')
+plt.grid(True)
+
+# Plot 3: Product f(x)*p(x) and f(x)*q(x) (what we are sampling vs. what we want to sample)
+plt.subplot(1, 3, 3)
+plt.plot(x_plot, f(x_plot) * p_pdf(x_plot), label='f(x)p(x) (target integrand)', color='purple')
+# Samples from q(x) weighted by f(x_i) gives an idea of where IS samples contribute most to the sum
+# This is not f(x)q(x) directly, but related to the contribution f(x_i)p(x_i)/q(x_i) * q(x_i) = f(x_i)p(x_i)
+# A better plot here is to show f(x)p(x) and where q(x) places samples.
+# Overlap q(x) scaled to match the peak of f(x)p(x) might be informative
+scale_factor_q = np.max(f(x_plot) * p_pdf(x_plot)) / np.max(q_pdf(x_plot))
+plt.plot(x_plot, q_pdf(x_plot) * scale_factor_q, label='q(x) (scaled to match f(x)p(x) peak)', color='red', linestyle='--')
+
+plt.title('Integrand f(x)p(x) and Scaled q(x)')
+plt.xlabel('x')
+plt.ylabel('Value')
+plt.legend()
+plt.grid(True)
+
+plt.tight_layout()
+plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
 #region Tests for Main Sampling
 
 #%% Libraries
