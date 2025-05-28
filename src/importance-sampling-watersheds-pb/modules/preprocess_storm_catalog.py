@@ -20,6 +20,8 @@ import rasterio as rio
 import xarray as xr
 import rioxarray as rxr # This import enables the .rio accessor on xarray objects
 
+from tqdm import tqdm
+
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
 
@@ -47,7 +49,7 @@ def sum_netcdf_to_tif(
                                         This sets the NoData flag in the output TIF.
     '''
     try:
-        print(f"Opening NetCDF file: {netcdf_filepath} with chunks='auto'")
+        # print(f"Opening NetCDF file: {netcdf_filepath} with chunks='auto'")
         # Use chunks='auto' for dask-backed arrays, efficient for large files
         xr_dataset = xr.open_dataset(netcdf_filepath, chunks="auto")
 
@@ -70,7 +72,7 @@ def sum_netcdf_to_tif(
                 f"Available dimensions are: {available_dims}"
             )
 
-        print(f"Summing data variable '{variable_name}' along dimension '{stack_dimension_name}'...")
+        # print(f"Summing data variable '{variable_name}' along dimension '{stack_dimension_name}'...")
         # skipna=True: NaNs will be treated as 0 in the sum.
         # If all values along the stack_dimension are NaN for a pixel, the sum will be 0.
         summed_data = data_array.sum(dim=stack_dimension_name, skipna=True, dtype=np.float32) # Ensure float output
@@ -92,7 +94,7 @@ def sum_netcdf_to_tif(
         #         print("Warning: Could not automatically determine spatial dimension names for CRS setting.")
         #     summed_data = summed_data.rio.write_crs("EPSG:4326", inplace=True)
 
-        print(f"Writing summed raster to GeoTIFF: {output_tif_filepath}")
+        # print(f"Writing summed raster to GeoTIFF: {output_tif_filepath}")
         # Use rio.to_raster for writing. It handles georeferencing.
         # Tiled and LZW compression are generally good for performance and size.
         summed_data.rio.to_raster(
@@ -104,7 +106,7 @@ def sum_netcdf_to_tif(
             windowed=True # Good for dask arrays if they are large
         )
 
-        print(f"Successfully created {output_tif_filepath}")
+        # print(f"Successfully created {output_tif_filepath}")
 
     except FileNotFoundError:
         print(f"Error: Input NetCDF file not found at {netcdf_filepath}")
@@ -191,7 +193,7 @@ def _calculate_weighted_raster_centroid_rasterio(raster_path: str) -> tuple:
             return centroid_x, centroid_y, sum_of_weights
 
     except rio.errors.RasterioIOError as e:
-        print(f"Error opening or reading raster file: {e}")
+        # print(f"Error opening or reading raster file: {e}")
         return None, None, None
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
@@ -257,7 +259,7 @@ def _calculate_weighted_raster_centroid_xarray(raster_path: str) -> tuple:
         centroid_x = (weighted_x_sum / sum_of_weights).item()
         centroid_y = (weighted_y_sum / sum_of_weights).item()
 
-        print(f"Raster CRS (from xarray): {data_array.rio.crs}")
+        # print(f"Raster CRS (from xarray): {data_array.rio.crs}")
         return centroid_x, centroid_y, sum_of_weights.item()
 
     except Exception as e: # More general exception for xarray/rioxarray specific issues
@@ -285,7 +287,7 @@ def calculate_weighted_raster_centroid(raster_path: str, backend: Literal['raste
             pass # Deal with this (throw error? use xarray? return null values?)
 
 #%%
-def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_output='storm_catalogue') -> None:
+def preprocess_storm_catalog(folder_storms, nc_data_name='APCP_surface', path_output='data/storm_catalog') -> None:
     '''Preprocess storm data. This creates a tif of accumulated rasters and a pickle file with their centroids within 'path_output'.
 
     Args:
@@ -303,8 +305,10 @@ def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_
     if not (path_storm/'tifs').exists():
         (path_storm/'tifs').mkdir()
 
+    pbar = tqdm(total=len(v_file_storm))
     for _file_storm in v_file_storm:
         sum_netcdf_to_tif(_file_storm, variable_name=nc_data_name, output_tif_filepath=path_storm/f'tifs/{_file_storm.stem}.tif')
+        pbar.update()
 
     # Calculate storm centroids
     df_storms = pd.DataFrame()
@@ -322,6 +326,6 @@ def preprocess_storm_catalogue(folder_storms, nc_data_name='APCP_surface', path_
         df_storms = pd.concat([df_storms, _df_storms], ignore_index=True)
 
     # Save pkl file
-    df_storms.to_pickle(path_storm/'catalogue.pkl')
+    df_storms.to_pickle(path_storm/'catalog.pkl')
 
 #endregion -----------------------------------------------------------------------------------------

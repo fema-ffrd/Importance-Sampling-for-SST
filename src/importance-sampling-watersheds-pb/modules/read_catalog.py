@@ -22,19 +22,23 @@ import geopandas as gpd
 #region Functions
 
 #%%
-def read_catalogue(path_sp_watershed: pathlib.Path, path_sp_domain: pathlib.Path, path_storm: pathlib.Path) -> tuple:    
+def read_catalog(path_data: pathlib.Path) -> tuple:
     '''Read watershed, domain, and storm catalogue. The watershed and domain crs are matched to the crs of the storm catalogue.
 
     Args:
-        path_sp_watershed (pathlib.Path): Path of watershed GIS file.
-        path_sp_domain (pathlib.Path): Path of domain GIS file.
-        path_storm (pathlib.Path): Path of storm catalogue pickel file.
+        path_data (pathlib.Path): Path of folder with the watershed GIS file, domain GIS file, and the storm catalogue pickle file.
 
     Returns:
         tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame]: Tuple of watershed geodataframe, domain geodataframe, and storm catalogue dataframe.
     '''
+    # Set paths
+    path_storm = path_data/'storm_catalog'
+    path_geojson = path_data/'geojson'
+    path_sp_watershed = list(path_geojson.glob('BASIN_*'))[0]
+    path_sp_domain = list(path_geojson.glob('DOMAIN_*'))[0]
+
     # Read storm catalogue
-    df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
+    df_storms = pd.read_pickle(path_storm/'catalog.pkl')
     
     # Read watershed and domain
     sp_watershed = gpd.read_file(path_sp_watershed)
@@ -45,5 +49,5 @@ def read_catalogue(path_sp_watershed: pathlib.Path, path_sp_domain: pathlib.Path
     sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
 
     return sp_watershed, sp_domain, df_storms
-    
+
 #endregion -----------------------------------------------------------------------------------------

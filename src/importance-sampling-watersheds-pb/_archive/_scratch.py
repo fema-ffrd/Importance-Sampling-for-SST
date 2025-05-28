@@ -3027,3 +3027,13 @@ plt.show() # Might be needed depending on environment
 # )
 
 #endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+import platform
+import pathlib
+
+if platform.system() == 'Windows':
+    pathlib.PosixPath = pathlib.WindowsPath
+
+#endregion -----------------------------------------------------------------------------------------
