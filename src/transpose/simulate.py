@@ -3,7 +3,6 @@ import numpy as np
 from tqdm import tqdm
 from .precipdepths import compute_depths
 from transpose import sample_poisson
-from transpose import sample_uniform_centers
 from transpose import transpose_storms
 
 def simulate_one_year(df_storms: pd.DataFrame,v_domain_stats: pd.Series,sp_watershed,
