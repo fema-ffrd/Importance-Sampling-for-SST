@@ -40,6 +40,7 @@ def get_files_pathlib(folder_path: str, extension: str = None) -> list:
         files = [entry for entry in folder.iterdir() if entry.suffix == f'.{extension}']
     return files # Returns a list of Path objects
 
+#%%
 def sum_netcdf_to_tif(
         netcdf_filepath: str,
         variable_name='band_data',
@@ -133,6 +134,7 @@ def sum_netcdf_to_tif(
             xr_dataset.close()
             print("Closed NetCDF file.")
 
+#%%
 def _calculate_weighted_raster_centroid_rasterio(raster_path: str) -> tuple:
     try:
         with rio.open(raster_path) as src:

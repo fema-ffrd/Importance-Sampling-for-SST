@@ -8,7 +8,7 @@ import pandas as pd
 
 import plotnine as pn
 
-from scipy.stats import uniform, truncnorm
+from scipy import stats
 
 import geopandas as gpd
 
@@ -19,7 +19,7 @@ import geopandas as gpd
 from modules.sample_storms import get_sp_stats, sample_storms
 from modules.compute_raster_stats import match_crs_to_raster
 from modules.compute_depths import compute_depths
-from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
 from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 
 #endregion -----------------------------------------------------------------------------------------
@@ -29,13 +29,26 @@ from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 if __name__ == '__main__':
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
+    os.chdir(r'data/1_interim/Kanawha_interim')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
     # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
     path_storm = pathlib.Path('storm_catalogue_trinity')
-    path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
-    path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+    path_sp_watershed = r"data/0_source/Kanawha/kanawha-basin.geojson"
+    path_sp_domain = r"data/0_source/Kanawha/kanawha-transpo-area-v01.geojson"
+
+
+    # path_storm = pathlib.Path('storm_catalogue_trinity')
+    # path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+    # path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+
+
+
+
+
+
+
+
 
     #%% Read storm catalogue
     df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
@@ -55,8 +68,8 @@ if __name__ == '__main__':
 
     # #%% Set distribution for x and y
     # # pls UPDATE this: distribution details
-    # dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
-    # dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
+    # dist_x = stats.truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*1.2, v_domain_stats.minx, v_domain_stats.maxx))
+    # dist_y = stats.truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*1.2, v_domain_stats.miny, v_domain_stats.maxy))
 
     #%% Set number of simulations and get storm samples
     # pls UPDATE this: number of simulations for ground truth (n_sim_mc_0) and importance sampling (n_sim_is_1)
@@ -91,8 +104,8 @@ if __name__ == '__main__':
 
     for mult_std in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
         print (f'Running for mult_std = {mult_std}')
-        dist_x = truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
-        dist_y = truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
+        dist_x = stats.truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx))
+        dist_y = stats.truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy))
 
         df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
 
@@ -131,6 +144,53 @@ if __name__ == '__main__':
 
         df_depths_is.to_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
+    #%% Truncated T Distribution
+    # pls UPDATE this: standard deviations and degree of freedom for importance sampling with Truncated T-distribution
+    n_sim_is = 100_000
+
+    for mult_std in [0.25, 0.5, 0.75, 1]:
+        for dof in [5, 10]:
+            print (f'Running for mult_std = {mult_std}, dof = {dof}')
+            dist_x = TruncatedDistribution(stats.t(loc=v_watershed_stats.x, scale=v_watershed_stats.range_x*mult_std, df=dof), v_domain_stats.minx, v_domain_stats.maxx)
+            dist_y = TruncatedDistribution(stats.t(loc=v_watershed_stats.y, scale=v_watershed_stats.range_y*mult_std, df=dof), v_domain_stats.miny, v_domain_stats.maxy)
+
+            df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+            df_storm_sample_is.to_pickle(f'df_storm_sample_is_tt_std_{mult_std}_dof_{dof}.pkl')
+
+            df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+            df_depths_is.to_pickle(f'df_depths_is_tt_std_{mult_std}_dof_{dof}.pkl')
+
+    #%% TruncNorm + Uniform Distribution
+    # pls UPDATE this: standard deviations and weight for importance sampling with TruncNorm + Uniform
+    n_sim_is = 100_000
+
+    for mult_std in [0.25, 0.5, 0.75, 1]:
+        for w1 in [0.1, 0.2]:
+            print (f'Running for mult_std = {mult_std}, alpha = {w1}')
+            dist_x = MixtureDistribution(
+                stats.uniform(v_domain_stats.minx, v_domain_stats.range_x),
+                stats.truncnorm(**truncnorm_params(v_watershed_stats.x, v_watershed_stats.range_x*mult_std, v_domain_stats.minx, v_domain_stats.maxx)),
+                w1
+            )
+            dist_y = MixtureDistribution(
+                stats.uniform(v_domain_stats.miny, v_domain_stats.range_y),
+                stats.truncnorm(**truncnorm_params(v_watershed_stats.y, v_watershed_stats.range_y*mult_std, v_domain_stats.miny, v_domain_stats.maxy)),
+                w1
+            )
+
+            df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+
+            df_storm_sample_is.to_pickle(f'df_storm_sample_is_tnXu_std_{mult_std}_w1_{w1}.pkl')
+
+            df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+
+            df_depths_is.to_pickle(f'df_depths_is_tnXu_std_{mult_std}_w1_{w1}.pkl')
+
+
+
+
 
 
     # The following lines read the results from before and evaluate the results
@@ -151,25 +211,53 @@ if __name__ == '__main__':
     # choice_dist = 'TruncNorm'
     # choice_param_value = 0.75
     # choice_param_name = 'std'
-    choice_dist = 'TruncGenNorm'
-    choice_param_value = 3
-    choice_param_name = 'beta'
+    # choice_dist = 'TruncGenNorm'
+    # choice_param_value = 3
+    # choice_param_name = 'beta'
+    # choice_dist = 'TruncT'
+    # choice_param_value = 1
+    # choice_param_name = 'std'
+    # choice_param_value_2 = 5
+    # choice_param_name = 'dof'
+    choice_dist = 'TruncNorm_Unif'
+    choice_param_value = 0.75
+    choice_param_name = 'std'
+    choice_param_value_2 = 0.1
+    choice_param_name = 'weight'
 
     # choice_dist = 'TruncNorm'
     # choice_param_name = 'std'
+    # choice_param_value_2 = None
     # for choice_param_value in [0.25, 0.5, 0.75, 1, 1.2, 1.5]:
     # choice_dist = 'TruncGenNorm'
     # choice_param_name = 'beta'
+    # choice_param_value_2 = None
     # for choice_param_value in [3, 5, 10]:
+    # choice_dist = 'TruncT'
+    # import itertools
+    # for choice_param_value, choice_param_value_2 in itertools.product([0.25, 0.5, 0.75, 1], [5, 10]):
+choice_dist = 'TruncNorm_Unif'
+import itertools
+for choice_param_value, choice_param_value_2 in itertools.product([0.25, 0.5, 0.75, 1], [0.1, 0.2]):
 
     if choice_dist == 'TruncNorm':
         mult_std = choice_param_value
         df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{choice_param_value}.pkl')
         df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{choice_param_value}.pkl')
-    else:
+    elif choice_dist == 'TruncGenNorm':
         beta = choice_param_value
         df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{choice_param_value}.pkl')
         df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{choice_param_value}.pkl')
+    elif choice_dist == 'TruncT':
+        mult_std = choice_param_value
+        dof = choice_param_value_2
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tt_std_{choice_param_value}_dof_{dof}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tt_std_{choice_param_value}_dof_{dof}.pkl')
+    elif choice_dist == 'TruncNorm_Unif':
+        mult_std = choice_param_value
+        w1 = choice_param_value_2
+        df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tnXu_std_{mult_std}_w1_{w1}.pkl')
+        df_depths_is_1 = pd.read_pickle(f'df_depths_is_tnXu_std_{mult_std}_w1_{w1}.pkl')
 
     #%% Print some stats about the simulations
     print_sim_stats(df_depths_mc_0)
@@ -203,7 +291,7 @@ if __name__ == '__main__':
         + pn.theme_bw()
     )
     # print(g)
-    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    g.save(f'XY {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_value_2}.png', width=10, height=7)
 
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -232,7 +320,9 @@ if __name__ == '__main__':
         )
     )
     # print(g)
-    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}.png', width=10, height=7)
+    g.save(f'Freq {choice_dist} {choice_param_name}_{choice_param_value}_{choice_param_value_2}.png', width=10, height=7)
+
+
 
     #%% Plot depth vs coordinates
     df_xy_mc_stats = \
@@ -259,8 +349,8 @@ if __name__ == '__main__':
         + pn.labs(x = 'x sampled', y = 'depth values')
         + pn.theme_bw()
     )
-    # print(g)
-    g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+    print(g)
+    # g.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
 
     df_xy_mc_stats = \
     (df_depths_mc_0
@@ -286,7 +376,15 @@ if __name__ == '__main__':
         + pn.labs(x = 'y sampled', y = 'depth values')
         + pn.theme_bw()
     )
-    # print(g)
-    g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+    print(g)
+    # g.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+
+#endregion -----------------------------------------------------------------------------------------
+#region Temp
+
+#%%
+df_depths_mc_0
+
+
 
 #endregion -----------------------------------------------------------------------------------------
