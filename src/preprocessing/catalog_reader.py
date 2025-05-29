@@ -1,9 +1,3 @@
-#region Modules
-
-#%%
-from modules.match_crs import match_crs_to_raster
-
-#endregion -----------------------------------------------------------------------------------------
 #region Libraries
 
 #%%
@@ -17,6 +11,12 @@ import plotnine as pn
 from scipy import stats
 
 import geopandas as gpd
+
+#endregion -----------------------------------------------------------------------------------------
+#region Modules
+
+#%%
+from src.utils_spatial.crs_converter import match_crs_to_raster
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions

@@ -1,9 +1,3 @@
-#region Modules
-
-#%%
-from process_files_folders import get_files_pathlib
-
-#endregion -----------------------------------------------------------------------------------------
 #region Libraries
 
 #%%
@@ -21,6 +15,12 @@ import xarray as xr
 import rioxarray as rxr # This import enables the .rio accessor on xarray objects
 
 from tqdm import tqdm
+
+#endregion -----------------------------------------------------------------------------------------
+#region Modules
+
+#%%
+from src.utils.os_utils import get_files_pathlib
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions

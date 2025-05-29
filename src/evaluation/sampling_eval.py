@@ -4,8 +4,6 @@
 import numpy as np
 import pandas as pd
 
-import geopandas as gpd
-
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
 
@@ -76,74 +74,5 @@ def print_sim_stats(df_depths: pd.DataFrame, multiplier: float=1) -> None:
         + f'Depth Estimate (self-normalized): {mean_estimate_n*multiplier:.2f} ± {standard_error_estimate_n*multiplier:.2f}\n'
         + f'Depth Estimate (non-normalized): {mean_estimate_un*multiplier:.2f} ± {standard_error_estimate_un*multiplier:.2f}\n'
     )
-
-#%%
-def get_prob(df_depths: pd.DataFrame, greater_than: list = None,  greater_than_incl = True, less_than: list = None,less_than_incl = True) -> pd.DataFrame:
-    '''Calculates the probability of depth being greater than or less than a value or between two values.
-
-    Args:
-        df_depths (pd.DataFrame): Dataframe of probabilities from 'compute_depths'.
-        greater_than: The threshold greater than which to calculate the probability.
-        greater_than_incl: If True, condition is depth >= greater_than.
-                           If False, condition is depth > greater_than.
-        less_than: The threshold less than which to calculate the probability.
-        less_than_incl: If True, condition is depth <= less_than.
-                        If False, condition is depth < less_than.
-    '''
-    v_depth = df_depths.depth
-    # v_weight = df_depths.weight
-    v_prob = df_depths.prob
-    if greater_than is not None:
-        if greater_than_incl:
-            indicator = (v_depth >= greater_than)
-        else:
-            indicator = (v_depth > greater_than)
-        # prob_greater_than = np.mean(indicator * v_weight)
-        prob_greater_than = np.sum(indicator * v_prob)
-    if less_than is not None:
-        if less_than_incl:
-            indicator = (v_depth <= less_than)
-        else:
-            indicator = (v_depth < less_than)
-        # prob_less_than = np.mean(indicator * v_weight)
-        prob_less_than = np.sum(indicator * v_prob)
-
-    if greater_than is not None and less_than is not None:
-        prob = prob_less_than - prob_greater_than
-    elif greater_than is not None:
-        prob = prob_greater_than
-    elif less_than is not None:
-        prob = prob_less_than
-    else:
-        prob = 1
-
-    return prob
-
-#%% Create probability dataframe from depths (sorted) and weights (sorted)
-def get_df_freq_curve(depths: list|np.ndarray|pd.Series, probs: list|np.ndarray|pd.Series) -> pd.DataFrame:
-    '''Generate frequency distribution curve datafra.e
-
-    Args:
-        depths (list | np.ndarray | pd.Series): Vector of depths.
-        probs (list | np.ndarray | pd.Series): Vector of probabilities.
-
-    Returns:
-        pd.DataFrame: Dataframe with inverse sorted depths and corresponding probabilities, exceedence probabilities, and return periods.
-    '''
-    # Table of depths and probabilities
-    df_prob_mc = pd.DataFrame(dict(
-        depth = depths,
-        prob = probs
-    ))
-
-    # Exceedence probability
-    df_prob_mc = \
-    (df_prob_mc
-        .sort_values('depth', ascending=False)
-        .assign(prob_exceed = lambda _: _.prob.cumsum())
-        .assign(return_period = lambda _: 1/_.prob_exceed)
-    )
-
-    return df_prob_mc
 
 #endregion -----------------------------------------------------------------------------------------

@@ -1,10 +1,3 @@
-#region Modules
-
-#%%
-from compute_raster_stats import sum_raster_values_in_polygon
-from shift_storm_center import shift_gdf
-
-#endregion -----------------------------------------------------------------------------------------
 #region Libraries
 
 #%%
@@ -20,10 +13,17 @@ import pandas as pd
 import geopandas as gpd
 
 #endregion -----------------------------------------------------------------------------------------
+#region Modules
+
+#%%
+from src.utils_spatial.zonal_stats import sum_raster_values_in_polygon
+from src.sst.storm_center_shifter import shift_gdf
+
+#endregion -----------------------------------------------------------------------------------------
 #region Functions
 
 #%% Shift storm and get zonal stat within watershed
-def _compute_depth_single(sp_watershed: gpd.GeoDataFrame, path_storm: str, shift_x: float, shift_y: float) -> float:
+def _shift_and_compute_depth_single(sp_watershed: gpd.GeoDataFrame, path_storm: str, shift_x: float, shift_y: float) -> float:
     #TODO implement shift method
     sp_watershed_shifted = shift_gdf(sp_watershed, shift_x, shift_y)
     _depth = sum_raster_values_in_polygon(path_storm, sp_watershed_shifted)
@@ -31,7 +31,7 @@ def _compute_depth_single(sp_watershed: gpd.GeoDataFrame, path_storm: str, shift
     return _depth
 
 #%% For each row in df_storm_sample, compute depth (shift storm and get zonal stat within watershed)
-def compute_depths(
+def shift_and_compute_depth(
     df_storm_sample: pd.DataFrame,
     sp_watershed: gpd.GeoDataFrame,
     shift: Literal['watershed', 'storm', 'best'] = 'watershed',
@@ -56,7 +56,7 @@ def compute_depths(
 
         _v_depth = []
         for i, row in df_storm_sample.iterrows():
-            _depth = _compute_depth_single(sp_watershed, row.path, -row.x_del, -row.y_del)
+            _depth = _shift_and_compute_depth_single(sp_watershed, row.path, -row.x_del, -row.y_del)
             _v_depth.append(_depth)
 
             pbar.update(1)
@@ -64,7 +64,7 @@ def compute_depths(
         # Prepare arguments for each parallel task
         # tqdm can be wrapped around the iterable that Parallel consumes.
         tasks = (
-            delayed(_compute_depth_single)(sp_watershed, row.path, -row.x_del, -row.y_del)
+            delayed(_shift_and_compute_depth_single)(sp_watershed, row.path, -row.x_del, -row.y_del)
             for row in df_storm_sample[['path', 'x_del', 'y_del']].itertuples(index=False)
         )
     

@@ -23,12 +23,14 @@ if platform.system() == 'Windows':
 
 #%%
 # from modules.match_crs import match_crs_to_raster
-from modules.read_catalog import read_catalog
-from modules.compute_spatial_stats import get_sp_stats
-from modules.sample_storms import sample_storms
-from modules.compute_depths import compute_depths
-from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
-from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
+from src.preprocessing.catalog_reader import read_catalog
+from src.utils_spatial.spatial_stats import get_sp_stats
+from src.sst.storm_sampler import sample_storms
+from src.sst.sst_depth_computer import shift_and_compute_depth
+from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
+from src.stats.distribution_helpers import truncnorm_params
+from src.stats.aep import get_df_freq_curve
+from src.evaluation.sampling_eval import print_sim_stats
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -37,11 +39,11 @@ from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 if __name__ == '__main__':
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Kanahwa')
+    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Duwamish')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
     # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
-    path_data = pathlib.Path(r'D:\FEMA Innovations\SO3.1\Py\Kanahwa\data')
+    path_data = pathlib.Path(r'D:\FEMA Innovations\SO3.1\Py\Duwamish\data')
 
     #%% Read watershed, domain, and storm catalogue
     sp_watershed, sp_domain, df_storms = read_catalog(path_data)
@@ -60,7 +62,7 @@ if __name__ == '__main__':
     df_storm_sample_mc_0.to_pickle('df_storm_sample_mc_0.pkl')
 
     # Run simulations and get depths
-    df_depths_mc_0 = compute_depths(df_storm_sample_mc_0, sp_watershed)
+    df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
     df_depths_mc_0.to_pickle('df_depths_mc_0.pkl')
 
 
@@ -79,7 +81,7 @@ if __name__ == '__main__':
     df_storm_sample_mc_1.to_pickle(f'df_storm_sample_mc_1_n_{n_sim_is}.pkl')
 
     # Run simulations and get depths
-    df_depths_mc_1 = compute_depths(df_storm_sample_mc_1, sp_watershed)
+    df_depths_mc_1 = shift_and_compute_depth(df_storm_sample_mc_1, sp_watershed)
     df_depths_mc_1.to_pickle(f'df_depths_mc_1_n_{n_sim_is}.pkl')
 
 
@@ -97,7 +99,7 @@ if __name__ == '__main__':
 
         df_storm_sample_is.to_pickle(f'df_storm_sample_is_n_{n_sim_is}_tn_std_{mult_std}.pkl')
 
-        df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+        df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
 
         df_depths_is.to_pickle(f'df_depths_is_n_{n_sim_is}_tn_std_{mult_std}.pkl')
 
@@ -124,7 +126,7 @@ if __name__ == '__main__':
 
         df_storm_sample_is.to_pickle(f'df_storm_sample_is_n_{n_sim_is}_tgn_beta_{beta}.pkl')
 
-        df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+        df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
 
         df_depths_is.to_pickle(f'df_depths_is_n_{n_sim_is}_tgn_beta_{beta}.pkl')
 
@@ -140,7 +142,7 @@ if __name__ == '__main__':
 
             df_storm_sample_is.to_pickle(f'df_storm_sample_is_n_{n_sim_is}_tt_std_{mult_std}_dof_{dof}.pkl')
 
-            df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+            df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
 
             df_depths_is.to_pickle(f'df_depths_is_n_{n_sim_is}_tt_std_{mult_std}_dof_{dof}.pkl')
 
@@ -164,7 +166,7 @@ if __name__ == '__main__':
 
             df_storm_sample_is.to_pickle(f'df_storm_sample_is_n_{n_sim_is}_tnXu_std_{mult_std}_w1_{w1}.pkl')
 
-            df_depths_is = compute_depths(df_storm_sample_is, sp_watershed)
+            df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
 
             df_depths_is.to_pickle(f'df_depths_is_n_{n_sim_is}_tnXu_std_{mult_std}_w1_{w1}.pkl')
 
@@ -174,7 +176,7 @@ if __name__ == '__main__':
 
     #%% Read number of simulations
     n_sim_mc = 1_000_000
-    n_sim_is = 10_000
+    n_sim_is = 100_000
 
     #%% Read Monte Carlo Results
     df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
