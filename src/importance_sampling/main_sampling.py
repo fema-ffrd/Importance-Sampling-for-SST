@@ -37,11 +37,11 @@ from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve
 if __name__ == '__main__':
     #%% Set working folder
     # pls UPDATE this: folder to save outputs
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Duwamish')
+    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Kanahwa')
 
     #%% Set location of storm catalogue (output from main_preprocess_storm_catalogue), watershed GIS file, and domain GIS file
     # pls UPDATE this: name for catalogue folder from main_preprocess_storm_catalogue
-    path_data = pathlib.Path(r'D:\FEMA Innovations\SO3.1\Py\Duwamish\data')
+    path_data = pathlib.Path(r'D:\FEMA Innovations\SO3.1\Py\Kanahwa\data')
 
     #%% Read watershed, domain, and storm catalogue
     sp_watershed, sp_domain, df_storms = read_catalog(path_data)
