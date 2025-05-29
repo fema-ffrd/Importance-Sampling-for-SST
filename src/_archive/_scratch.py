@@ -751,7 +751,8 @@ import matplotlib.pyplot as plt
 import plotnine as pn
 
 #%% Imports (modules)
-from modules.distributions import truncnorm_params, TruncatedGeneralizedNormal
+from src.stats.distributions import TruncatedGeneralizedNormal
+from src.stats.distribution_helpers import truncnorm_params
 
 #%% Range for x
 x_min = 0
@@ -2123,11 +2124,17 @@ plt.show()
 #%% Libraries
 import dsplus as ds
 
-from modules.compute_raster_stats import match_crs_to_raster
-from modules.shift_storm_center import shift_gdf
-from modules.compute_raster_stats import sum_raster_values_in_polygon
-from modules.compute_depths import compute_depths
-from modules.compute_prob_stats import print_sim_stats, get_df_freq_curve, get_prob
+from src.utils_spatial.crs_converter import match_crs_to_raster
+from src.sst.storm_center_shifter import shift_gdf
+from src.utils_spatial.zonal_stats import sum_raster_values_in_polygon
+from src.preprocessing.catalog_reader import read_catalog
+from src.utils_spatial.spatial_stats import get_sp_stats
+from src.sst.storm_sampler import sample_storms
+from src.sst.sst_depth_computer import shift_and_compute_depth
+from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
+from src.stats.distribution_helpers import truncnorm_params
+from src.stats.aep import get_df_freq_curve
+from src.evaluation.sampling_eval import print_sim_stats
 
 #%% Data
 os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
@@ -2182,8 +2189,8 @@ sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
 
 #%%
 df_storm_sample = df_storm_sample_mc_0.sample(1500)
-df_1 = compute_depths(df_storm_sample, sp_watershed)
-df_2 = compute_depths(df_storm_sample, sp_watershed, parallel=True)
+df_1 = shift_and_compute_depth(df_storm_sample, sp_watershed)
+df_2 = shift_and_compute_depth(df_storm_sample, sp_watershed, parallel=True)
 
 df_1.equals(df_2)
 

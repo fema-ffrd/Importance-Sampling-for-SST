@@ -2,6 +2,7 @@
 
 #%%
 import os
+import pathlib
 
 #endregion -----------------------------------------------------------------------------------------
 #region Modules
@@ -14,17 +15,14 @@ from src.preprocessing.catalog_preprocessor import preprocess_storm_catalog
 
 #%%
 if __name__ == '__main__':
-    #%% Set working folder
-    # pls UPDATE this: folder to save outputs
-    os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Kanahwa')
-
-    #%% Set location of folder with precipitation nc files and data name
-    # pls UPDATE this: folder with input storms and band data for nc file
-    folder_storms = r'D:\FEMA Innovations\SO3.1\Py\Kanahwa\nc'
-    nc_data_name = 'band_data'
-
+    #%% Select Watershed
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+    
+    #%% Working folder
+    os.chdir(rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}')
+    cwd = pathlib.Path.cwd()
+    
     #%% Preprocess the nc files, save storm catalogue to "path_storm"
-    # pls UPDATE this: name for catalogue folder
-    preprocess_storm_catalog(folder_storms, nc_data_name)
+    preprocess_storm_catalog(cwd/'nc', 'band_data')
 
 #endregion -----------------------------------------------------------------------------------------
