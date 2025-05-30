@@ -80,6 +80,7 @@ if __name__ == '__main__':
     df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
     df_depths_mc_0.to_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
 
+    #%%
     for n_sim_is in [5_000, 10_000, 100_000]:
         #%% Run Monte Carlo for comparison
         # Generate samples
@@ -147,11 +148,15 @@ if __name__ == '__main__':
             df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
             df_depths_is.to_pickle(cwd/'pickle'/f'df_depths_is_n_{n_sim_is}_{row.name_file}.pkl')
 
+    # #%%
+    # n_sim_is = 10_000
+
     #%% Read simulations results
     #%% Read Ground Truth results
     df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_storm_sample_mc_0.pkl')
     df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
 
+    #%%
     for n_sim_is in [5_000, 10_000, 100_000]:
         #%% Read Monte Carlo results
         df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_storm_sample_mc_1_n_{n_sim_is}.pkl')
@@ -161,8 +166,8 @@ if __name__ == '__main__':
         g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
         # g_x.show()
         # g_y.show()
-        g_x.save(f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
-        g_y.save(f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+        g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+        g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
         #%% Read Importance Sampling results
         for row in df_dist_params.itertuples():
@@ -179,7 +184,7 @@ if __name__ == '__main__':
             #%% Distribution of sampled points
             g = plot_sample_centers(df_storm_sample_is_1, sp_watershed, sp_domain, v_domain_stats)
             # g.show()
-            g.save(f'XY n_{n_sim_is} {row.name_file}.png', width=10, height=7)
+            g.save(cwd/'plots'/f'XY n_{n_sim_is} {row.name_file}.png', width=10, height=7)
 
             #%% Get table of frequency curves
             df_freq_curve_mc_0 = get_df_freq_curve(df_depths_mc_0.depth, df_depths_mc_0.prob)
@@ -189,6 +194,6 @@ if __name__ == '__main__':
             #%% Plot frequency curves
             g = plot_freq_curve([df_freq_curve_mc_0, df_freq_curve_mc_1, df_freq_curve_is_1], [f'MC ({n_sim_mc/1000}k)', f'MC ({n_sim_is/1000}k)', f'IS ({n_sim_is/1000}k)'])
             # g.show()
-            g.save(f'Freq n_{n_sim_is} {row.name_file}.png', width=10, height=7)
+            g.save(cwd/'plots'/f'Freq n_{n_sim_is} {row.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
