@@ -1,6 +1,8 @@
 #region Libraries
 
 #%%
+from typing import Literal
+
 import pandas as pd
 
 import plotnine as pn
@@ -105,12 +107,8 @@ def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
     return g_x, g_y
 
 #%%
-def plot_freq_curve(l_df_depths, l_names, l_colors=None):
-    g = pn.ggplot(mapping=pn.aes(x='prob_exceed', y='depth'))
-
-        # + pn.geom_point(data=df_freq_curve_mc_0, mapping=pn.aes(color=f'"MC ({n_sim_mc/1000}k)"'), size=0.1)
-        # + pn.geom_point(data=df_freq_curve_mc_1, mapping=pn.aes(color=f'"MC ({n_sim_is/1000}k)"'), size=0.1)
-        # + pn.geom_point(data=df_freq_curve_is_1, mapping=pn.aes(color=f'"IS ({n_sim_is/1000}k)"'), size=0.1)
+def plot_freq_curve(l_df_depths, l_names, l_colors=None, var_x: Literal['return_period', 'prob_exceed']='return_period'):
+    g = pn.ggplot(mapping=pn.aes(x=var_x, y='depth'))
 
     for df_depths, name in zip(l_df_depths, l_names):
         g = g + pn.geom_point(data=df_depths, mapping=pn.aes(color=f'"{name}"'), size=0.1)
@@ -119,7 +117,9 @@ def plot_freq_curve(l_df_depths, l_names, l_colors=None):
     (g
         + pn.scale_x_log10()
         + pn.labs(
-            x = 'Exceedence Probability',
+            # x = 'Return Period',
+            # x = 'Exceedence Probability',
+            x = 'Return Period' if var_x == 'return_period' else 'Exceedence Probability',
             y = 'Rainfall Depth',
             title = 'Basic Monte Carlo vs Importance Sampling'
         )
