@@ -240,6 +240,7 @@ g.show()
 # df_freq_curve_mc_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
 # df_freq_curve_is_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
 
+#%%
 for n_sim_is in [10_000, 100_000]:
     df_depths_mc_u = pd.DataFrame()
     df_depths_is_u = pd.DataFrame()
