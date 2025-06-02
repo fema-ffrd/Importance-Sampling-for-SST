@@ -35,7 +35,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #region Set Watershed
 
 #%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
 
 #endregion -----------------------------------------------------------------------------------------
 #region Set Working Folder
@@ -59,7 +59,7 @@ v_domain_stats = get_sp_stats(sp_domain)
 
 #%% Set number of simulations
 n_sim_mc = 1_000_000
-n_sim_is = 10_000
+n_sim_is = 100_000
 
 #endregion -----------------------------------------------------------------------------------------
 #region Set Importance Sampling Parameters
@@ -69,7 +69,7 @@ df_dist_params = pd.DataFrame(dict(
     dist = ['Truncated Normal + Uniform'],
     acronym = ['tnXu'],
     param_1_name = ['std'],
-    param_1 = ['0.75'], # 1 for Duwamish, 0.75 for Trinity
+    param_1 = ['0.5'], # 1 for Duwamish, 0.5 for Kanahwa, 0.75 for Trinity
     param_2_name = ['w1'],
     param_2 = ['0.1'],
 ))
@@ -240,34 +240,34 @@ g.show()
 # df_freq_curve_mc_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
 # df_freq_curve_is_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
 
-df_depths_mc_u = pd.DataFrame()
-df_depths_is_u = pd.DataFrame()
-df_freq_curve_mc_u = pd.DataFrame()
-df_freq_curve_is_u = pd.DataFrame()
-for i in range(0, 100):
-    # Monte Carlo
-    _df_storm_sample_mc = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
-    _df_depths_mc = shift_and_compute_depth(_df_storm_sample_mc, sp_watershed)
+for n_sim_is in [10_000, 100_000]:
+    df_depths_mc_u = pd.DataFrame()
+    df_depths_is_u = pd.DataFrame()
+    df_freq_curve_mc_u = pd.DataFrame()
+    df_freq_curve_is_u = pd.DataFrame()
+    for i in range(n_sim_is/1_000):
+        # Monte Carlo
+        _df_storm_sample_mc = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
+        _df_depths_mc = shift_and_compute_depth(_df_storm_sample_mc, sp_watershed)
 
-    # Importance sampling
-    _df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
-    _df_depths_is = shift_and_compute_depth(_df_storm_sample_is, sp_watershed)
+        # Importance sampling
+        _df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+        _df_depths_is = shift_and_compute_depth(_df_storm_sample_is, sp_watershed)
 
-    # Get Table of Frequency Curves
-    _df_freq_curve_mc = get_return_period_langbein(_df_depths_mc.depth, _df_depths_mc.prob)
-    _df_freq_curve_is = get_return_period_langbein(_df_depths_is.depth, _df_depths_is.prob)
+        # Get Table of Frequency Curves
+        _df_freq_curve_mc = get_return_period_langbein(_df_depths_mc.depth, _df_depths_mc.prob)
+        _df_freq_curve_is = get_return_period_langbein(_df_depths_is.depth, _df_depths_is.prob)
 
-    # Record results
-    df_depths_mc_u = pd.concat([df_depths_mc_u, _df_depths_mc.assign(iter = i)])
-    df_depths_is_u = pd.concat([df_depths_is_u, _df_depths_is.assign(iter = i)])
-    df_freq_curve_mc_u = pd.concat([df_freq_curve_mc_u, _df_freq_curve_mc.assign(iter = i)])
-    df_freq_curve_is_u = pd.concat([df_freq_curve_is_u, _df_freq_curve_is.assign(iter = i)])
+        # Record results
+        df_depths_mc_u = pd.concat([df_depths_mc_u, _df_depths_mc.assign(iter = i)])
+        df_depths_is_u = pd.concat([df_depths_is_u, _df_depths_is.assign(iter = i)])
+        df_freq_curve_mc_u = pd.concat([df_freq_curve_mc_u, _df_freq_curve_mc.assign(iter = i)])
+        df_freq_curve_is_u = pd.concat([df_freq_curve_is_u, _df_freq_curve_is.assign(iter = i)])
 
-#%%
-df_depths_mc_u.to_pickle(cwd/'pickle'/f'df_depths_mc_u_n_{n_sim_is}.pkl')
-df_depths_is_u.to_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-df_freq_curve_mc_u.to_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
-df_freq_curve_is_u.to_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
+    df_depths_mc_u.to_pickle(cwd/'pickle'/f'df_depths_mc_u_n_{n_sim_is}.pkl')
+    df_depths_is_u.to_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
+    df_freq_curve_mc_u.to_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
+    df_freq_curve_is_u.to_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
 
 #%%
 # g = plot_freq_curve([df_freq_curve_mc_u.loc[lambda _: _.iter.isin([0])], df_freq_curve_is_u.loc[lambda _: _.iter.isin([0])]], [f'MC ({n_sim_is/1000}k)', f'IS ({n_sim_is/1000}k)'])
