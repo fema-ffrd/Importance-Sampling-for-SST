@@ -3,6 +3,7 @@
 #%%
 import numpy as np
 import pandas as pd
+from scipy.interpolate import interp1d
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
@@ -20,21 +21,35 @@ def get_return_period_langbein(depths: list|np.ndarray|pd.Series, probs: list|np
         pd.DataFrame: Dataframe with inverse sorted depths and corresponding probabilities, exceedence probabilities, and return periods.
     '''
     # Table of depths and probabilities
-    df_prob_mc = pd.DataFrame(dict(
+    df_prob = pd.DataFrame(dict(
         depth = depths,
         prob = probs
     ))
 
     # Exceedence probability
-    df_prob_mc = \
-    (df_prob_mc
+    df_prob = \
+    (df_prob
         .sort_values('depth', ascending=False)
         .assign(prob_exceed_pds = lambda _: _.prob.cumsum())
         .assign(prob_exceed = lambda _: 1 - np.exp(-lambda_rate * _.prob_exceed_pds))
         .assign(return_period = lambda _: 1/_.prob_exceed)
     )
 
-    return df_prob_mc
+    return df_prob
+
+#%%
+def get_aep_depths(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> pd.DataFrame:
+    v_depths =  interp1d(df_prob.return_period, df_prob.depth)(return_period)
+
+    df_aep = pd.DataFrame(dict(return_period = return_period))
+
+    df_aep = \
+    (df_aep
+        .assign(prob_exceed = lambda _: 1/_.return_period)
+        .assign(depth = v_depths)
+    )
+
+    return df_aep
 
 #endregion -----------------------------------------------------------------------------------------
 #region Archive
