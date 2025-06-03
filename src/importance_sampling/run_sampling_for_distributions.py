@@ -159,6 +159,13 @@ if __name__ == '__main__':
     #%% Get table of frequency curves
     df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0.depth, df_depths_mc_0.prob)
     
+    #%% Plot depth vs coordinates (for full MC)
+    g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
+    # g_x.show()
+    # g_y.show()
+    g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+    g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+
     #%% Read and evaluate results
     for n_sim_is in v_n_sim_is:
         #%% Read Monte Carlo results
@@ -167,13 +174,6 @@ if __name__ == '__main__':
 
         #%% Get table of frequency curves
         df_freq_curve_mc = get_return_period_langbein(df_depths_mc.depth, df_depths_mc.prob)
-
-        #%% Plot depth vs coordinates (for full MC)
-        g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
-        # g_x.show()
-        # g_y.show()
-        g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
-        g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
         #%% Read and evaluate Importance Sampling results
         for row in df_dist_params.itertuples():
