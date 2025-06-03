@@ -68,6 +68,10 @@ if __name__ == '__main__':
         .drop(columns=['_p1', '_p2'])
     )
 
+    #%% Set number of simulations
+    n_sim_mc = 1_000_000
+    v_n_sim_is = [10_000, 100_000]
+
     #%%
     match name_watershed:
         case 'Duwamish':
@@ -127,12 +131,12 @@ if __name__ == '__main__':
             )
     
     #%% Perform uncertainty analysis
-    for n_sim_is in [10_000, 100_000]:
+    for n_sim_is in v_n_sim_is:
         df_depths_mc_u = pd.DataFrame()
         df_depths_is_u = pd.DataFrame()
         df_freq_curve_mc_u = pd.DataFrame()
         df_freq_curve_is_u = pd.DataFrame()
-        for i in range(int(1_000_000/n_sim_is)):
+        for i in range(int(n_sim_mc/n_sim_is)):
             # Monte Carlo
             _df_storm_sample_mc = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
             _df_depths_mc = shift_and_compute_depth(_df_storm_sample_mc, sp_watershed)
@@ -164,7 +168,7 @@ if __name__ == '__main__':
     df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0.depth, df_depths_mc_0.prob)
     
     #%% Plot uncertainty analysis results
-    for n_sim_is in [10_000, 100_000]:
+    for n_sim_is in v_n_sim_is:
         #%%
         df_depths_is_u = pd.read_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
         df_freq_curve_is_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
@@ -187,7 +191,7 @@ if __name__ == '__main__':
                 # x = 'Exceedence Probability',
                 x = 'Return Period',
                 y = 'Rainfall Depth',
-                title = f'Uncertainty (N={n_sim_is}, iter={int(1_000_000/n_sim_is)})'
+                title = f'Uncertainty (N={n_sim_is}, iter={int(n_sim_mc/n_sim_is)})'
             )
             + pn.theme_bw()
             + pn.theme(
@@ -199,6 +203,6 @@ if __name__ == '__main__':
             )
         )
         # g.show()
-        g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{int(1_000_000/n_sim_is)} {row.name_file}.png', width=10, height=7)
+        g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{int(n_sim_mc/n_sim_is)} {row.name_file}.png', width=10, height=7)
     
 #endregion -----------------------------------------------------------------------------------------

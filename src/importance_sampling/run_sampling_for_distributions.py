@@ -68,6 +68,7 @@ if __name__ == '__main__':
 
     #%% Set number of simulations
     n_sim_mc = 1_000_000
+    v_n_sim_is = [5_000, 10_000, 100_000]
 
     #%% Run simulations
     #%% Ground truth (Run once)
@@ -80,7 +81,7 @@ if __name__ == '__main__':
     df_depths_mc_0.to_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
 
     #%%
-    for n_sim_is in [5_000, 10_000, 100_000]:
+    for n_sim_is in v_n_sim_is:
         #%% Run Monte Carlo for comparison
         # Generate samples
         df_storm_sample_mc = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
@@ -150,9 +151,6 @@ if __name__ == '__main__':
             df_depths_is = shift_and_compute_depth(df_storm_sample_is, sp_watershed)
             df_depths_is.to_pickle(cwd/'pickle'/f'df_depths_is_n_{n_sim_is}_{row.name_file}.pkl')
 
-    # #%%
-    # n_sim_is = 10_000
-
     #%% Read simulations results
     #%% Read Ground Truth results
     df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_storm_sample_mc_0.pkl')
@@ -162,7 +160,7 @@ if __name__ == '__main__':
     df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0.depth, df_depths_mc_0.prob)
     
     #%% Read and evaluate results
-    for n_sim_is in [5_000, 10_000, 100_000]:
+    for n_sim_is in v_n_sim_is:
         #%% Read Monte Carlo results
         df_storm_sample_mc: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_storm_sample_mc_n_{n_sim_is}.pkl')
         df_depths_mc: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_is}.pkl')
