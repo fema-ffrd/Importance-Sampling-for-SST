@@ -34,6 +34,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #endregion -----------------------------------------------------------------------------------------
 #region Main
 
+#%%
 if __name__ == '__main__':
     #%% Select Watershed
     name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
@@ -149,13 +150,14 @@ if __name__ == '__main__':
             df_depths_is_u = pd.concat([df_depths_is_u, _df_depths_is.assign(iter = i)])
             df_freq_curve_mc_u = pd.concat([df_freq_curve_mc_u, _df_freq_curve_mc.assign(iter = i)])
             df_freq_curve_is_u = pd.concat([df_freq_curve_is_u, _df_freq_curve_is.assign(iter = i)])
-    
+
+        # Save uncertainty analysis results
         df_depths_mc_u.to_pickle(cwd/'pickle'/f'df_depths_mc_u_n_{n_sim_is}.pkl')
         df_depths_is_u.to_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
         df_freq_curve_mc_u.to_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
         df_freq_curve_is_u.to_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
     
-    #%% Save uncertainty analysis results
+    #%% Read uncertainty analysis results
     df_freq_curve_mc_u: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
     df_freq_curve_is_u: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
     df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')

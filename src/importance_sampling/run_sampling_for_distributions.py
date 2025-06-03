@@ -32,6 +32,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #endregion -----------------------------------------------------------------------------------------
 #region Main
 
+#%%
 if __name__ == '__main__':
     #%% Select Watershed
     name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
