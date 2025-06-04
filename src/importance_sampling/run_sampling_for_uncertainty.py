@@ -3,13 +3,12 @@
 #%%
 import os
 import pathlib
+import platform
 
 import numpy as np
 import pandas as pd
 
 from scipy import stats
-
-import platform
 
 import plotnine as pn
 
