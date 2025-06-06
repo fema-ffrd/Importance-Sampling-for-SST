@@ -22,6 +22,8 @@ from src.preprocessing.catalog_reader import read_catalog
 from src.preprocessing.param_scheme_reader import read_param_scheme, get_dist_from_scheme
 from src.utils_spatial.spatial_stats import get_sp_stats
 from src.sst.sst_simulation import simulate_sst_iter
+from src.evaluation.plotting import plot_sample_centers
+from src.evaluation.metrics import get_aep_rmse
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -111,16 +113,24 @@ if __name__ == '__main__':
     #%% Plot uncertainty analysis results
     for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
         #%% Read uncertainty analysis results
-        # df_depths_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+        df_depths_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_prob_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_summary_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_summary_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
 
-        # df_depths_is_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_is_iter_n_{n_sim_is}x{n_iter}.pkl')
+        df_depths_is_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_prob_is_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_is_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_summary_is_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_summaryisc_iter_n_{n_sim_is}x{n_iter}.pkl')
-    
+
+        # df_aep_summary_mc_iter.rename(columns={'type': 'type_val'}).to_pickle(cwd/'pickle'/f'df_aep_summary_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+        # df_aep_summary_is_iter.rename(columns={'type': 'type_val'}).to_pickle(cwd/'pickle'/f'df_aep_summaryisc_iter_n_{n_sim_is}x{n_iter}.pkl')
+
+        #%% Distribution of sampled points
+        g = plot_sample_centers(df_depths_is_iter.loc[lambda _: _.iter == 0], sp_watershed, sp_domain, v_domain_stats)
+        # g.show()
+        g.save(cwd/'plots'/f'XY iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+
         #%%
         g = \
         (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth', group = 'type_val', linetype='type_val'))
@@ -146,5 +156,19 @@ if __name__ == '__main__':
         )
         # g.show()
         g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+
+        #%%
+        df_rmse = \
+        pd.DataFrame(dict(
+            rmse_mc_mean = [get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'mean'])],
+            rmse_mc_median = [get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'median'])],
+            rmse_is_mean = [get_aep_rmse(df_aep_mc_0, df_aep_summary_is_iter.loc[lambda _: _.type_val == 'mean'])],
+            rmse_is_median = [get_aep_rmse(df_aep_mc_0, df_aep_summary_is_iter.loc[lambda _: _.type_val == 'median'])],
+        ))
+        df_rmse.to_clipboard(index=False)
+        # print (f'RMSE MC mean={get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'mean'])}')
+        # print (f'RMSE MC median={get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'mean'])}')
+        # print (f'RMSE MC mean={get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'mean'])}')
+        # print (f'RMSE MC mean={get_aep_rmse(df_aep_mc_0, df_aep_summary_mc_iter.loc[lambda _: _.type_val == 'mean'])}')
 
 #endregion -----------------------------------------------------------------------------------------

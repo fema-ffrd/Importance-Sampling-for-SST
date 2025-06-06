@@ -3312,7 +3312,126 @@ df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 )
 
 #endregion -----------------------------------------------------------------------------------------
-#region Rotated Normal Check
+#region Rotated Normal Test
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+
+class RotatedNormal:
+    """
+    A rotated 2D Normal distribution.
+
+    This class creates a multivariate normal distribution that is defined by the
+    means, the standard deviations along its principal axes, and a rotation
+    angle for those axes.
+
+    Args:
+        mean (tuple or list): A 2-element sequence [mean_x, mean_y] for the center.
+        stds (tuple or list): A 2-element sequence [std_x, std_y] for the standard
+                              deviations along the principal axes.
+        angle_degrees (float): The rotation angle of the distribution's principal
+                               axes in degrees.
+    """
+    def __init__(self, mean, stds, angle_degrees):
+        self.mean = np.array(mean)
+        self.stds = np.array(stds)
+        self.angle_rad = np.deg2rad(angle_degrees)
+
+        # 1. Create the mean vector
+        # This is already done with self.mean
+
+        # 2. Create the covariance matrix
+        # Start with the unrotated covariance matrix (variances on the diagonal)
+        variances = self.stds**2
+        cov_unrotated = np.diag(variances)
+
+        # Create the 2D rotation matrix
+        c, s = np.cos(self.angle_rad), np.sin(self.angle_rad)
+        rotation_matrix = np.array([[c, -s],
+                                    [s,  c]])
+
+        # Apply the rotation to the unrotated covariance matrix
+        # using the formula: R * C * R^T
+        # In numpy, R.T is the transpose and @ is matrix multiplication
+        self.cov = rotation_matrix @ cov_unrotated @ rotation_matrix.T
+
+        # 3. Create the underlying scipy multivariate normal distribution
+        self.dist = stats.multivariate_normal(mean=self.mean, cov=self.cov)
+
+    def pdf(self, x):
+        """
+        Probability density function.
+        """
+        return self.dist.pdf(x)
+
+    def rvs(self, size=1, random_state=None):
+        """
+        Draw random samples from the distribution.
+        """
+        return self.dist.rvs(size=size, random_state=random_state)
+
+    def cdf(self, x):
+        """
+        Cumulative distribution function.
+        """
+        return self.dist.cdf(x)
+
+# --- --- --- --- ---
+#  Example Usage
+# --- --- --- --- ---
+
+# 1. Define the parameters for our custom distribution
+mean_xy = [2, 5]       # Center of the distribution
+stds_xy = [3, 1]       # Std dev along major and minor axes (long and skinny)
+angle = 45             # Rotation in degrees
+
+# 2. Create an instance of our RotatedNormal distribution
+my_dist = RotatedNormal(mean=mean_xy, stds=stds_xy, angle_degrees=angle)
+
+# Print the calculated mean and covariance matrix
+print("Mean Vector:\n", my_dist.mean)
+print("\nCovariance Matrix:\n", my_dist.cov)
+
+# 3. Use the distribution just like a scipy object
+# Generate 1000 random samples
+n_samples = 2000
+samples = my_dist.rvs(size=n_samples, random_state=42)
+
+# Calculate the PDF at a specific point
+pdf_at_mean = my_dist.pdf(mean_xy)
+print(f"\nPDF at the mean ({mean_xy}): {pdf_at_mean:.4f}")
+
+# 4. Visualize the results
+plt.figure(figsize=(10, 10))
+
+# Plot the random samples
+plt.scatter(samples[:, 0], samples[:, 1], alpha=0.4, label='Random Samples (RVS)')
+
+# Create a grid to evaluate the PDF on
+x = np.linspace(-5, 10, 300)
+y = np.linspace(-2, 12, 300)
+xx, yy = np.meshgrid(x, y)
+pos = np.dstack((xx, yy))
+
+# Plot the PDF contours
+plt.contour(xx, yy, my_dist.pdf(pos), levels=5, colors='red', linewidths=2, label='PDF Contours')
+
+# Mark the mean
+plt.plot(mean_xy[0], mean_xy[1], 'k+', markersize=15, markeredgewidth=2, label='Mean')
+
+plt.title(f'Rotated 2D Normal Distribution\nMean={mean_xy}, Stds={stds_xy}, Angle={angle}°')
+plt.xlabel('X-axis')
+plt.ylabel('Y-axis')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+# Use 'equal' aspect ratio to see the rotation without distortion
+plt.axis('equal') 
+plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
+#region Rotated Normal with Polygon Check
 
 #%%
 from src.stats.distributions import RotatedNormal
@@ -3321,6 +3440,7 @@ from src.stats.distributions import RotatedNormal
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
 from scipy import stats
+from shapely.geometry import Polygon
 
 #%%
 def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
@@ -3387,7 +3507,7 @@ def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
 # --- --- --- --- ---
 
 # 1. Create an irregular, rotated polygon
-poly_coords = [(1, 2), (2, 5), (3, 7), (4, 4), (6, 4), (7, 1), (5, 1), (2, 0)]
+poly_coords = [(1, 2), (2, 5), (3, 7), (9, 9), (6, 4), (7, 1), (5, 1), (2, 0)]
 irregular_poly = Polygon(poly_coords)
 
 # 2. Fit the distribution to the polygon
@@ -3419,7 +3539,7 @@ xx, yy = np.meshgrid(g_x, g_y)
 pos = np.dstack((xx, yy))
 ax.contour(xx, yy, fitted_dist.pdf(pos), levels=4, colors='red', linewidths=2, zorder=3, label='PDF Contours')
 
-ax.set_title("Normal Distribution Fitted to a Polygon using PCA")
+ax.set_title("Rotated Normal Distribution Fitted to a Polygon")
 ax.legend()
 ax.axis('equal')
 ax.grid(True, linestyle='--', alpha=0.6)
