@@ -2121,78 +2121,78 @@ plt.show()
 #endregion -----------------------------------------------------------------------------------------
 #region Tests for Main Sampling
 
-#%% Libraries
-import dsplus as ds
+# #%% Libraries
+# import dsplus as ds
 
-from src.utils_spatial.crs_converter import match_crs_to_raster
-from src.sst.storm_center_shifter import shift_gdf
-from src.utils_spatial.zonal_stats import get_raster_values_in_polygon
-from src.preprocessing.catalog_reader import read_catalog
-from src.utils_spatial.spatial_stats import get_sp_stats
-from src.sst.storm_sampler import sample_storms
-from src.sst.sst_depth_computer import shift_and_compute_depth
-from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
-from src.stats.distribution_helpers import truncnorm_params
-from src.stats.aep import get_df_freq_curve
-from src.evaluation.sampling_eval import print_sim_stats
+# from src.utils_spatial.crs_converter import match_crs_to_raster
+# from src.sst.storm_center_shifter import shift_gdf
+# from src.utils_spatial.zonal_stats import get_raster_values_in_polygon
+# from src.preprocessing.catalog_reader import read_catalog
+# from src.utils_spatial.spatial_stats import get_sp_stats
+# from src.sst.storm_sampler import sample_storms
+# from src.sst.sst_depth_computer import shift_and_compute_depth
+# from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
+# from src.stats.distribution_helpers import truncnorm_params
+# from src.stats.aep import get_df_freq_curve
+# from src.evaluation.sampling_eval import print_sim_stats
 
-#%% Data
-os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
-path_storm = pathlib.Path('storm_catalogue_trinity')
-path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
-path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
-df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
-sp_watershed = gpd.read_file(path_sp_watershed)
-sp_domain = gpd.read_file(path_sp_domain)
-sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
-sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
-df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
-df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
-df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
-df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
-choice_dist = 'TruncNorm'
-choice_param_value = 1.2
-choice_param_name = 'std'
-# choice_dist = 'TruncGenNorm'
-# choice_param_value = 5
-# choice_param_name = 'beta'
-if choice_dist == 'TruncNorm':
-    mult_std = choice_param_value
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
-else:
-    beta = choice_param_value
-    df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
-    df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
+# #%% Data
+# os.chdir(r'D:\FEMA Innovations\SO3.1\Py\Trinity')
+# path_storm = pathlib.Path('storm_catalogue_trinity')
+# path_sp_watershed = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity.geojson"
+# path_sp_domain = r"D:\FEMA Innovations\SO3.1\Py\Trinity\watershed\trinity-transpo-area-v01.geojson"
+# df_storms = pd.read_pickle(path_storm/'catalogue.pkl')
+# sp_watershed = gpd.read_file(path_sp_watershed)
+# sp_domain = gpd.read_file(path_sp_domain)
+# sp_watershed = match_crs_to_raster(sp_watershed, df_storms['path'].iloc[0])
+# sp_domain = match_crs_to_raster(sp_domain, df_storms['path'].iloc[0])
+# df_storm_sample_mc_0: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_0.pkl')
+# df_storm_sample_mc_1: pd.DataFrame = pd.read_pickle('df_storm_sample_mc_1.pkl')
+# df_depths_mc_0: pd.DataFrame = pd.read_pickle('df_depths_mc_0.pkl')
+# df_depths_mc_1: pd.DataFrame = pd.read_pickle('df_depths_mc_1.pkl')
+# choice_dist = 'TruncNorm'
+# choice_param_value = 1.2
+# choice_param_name = 'std'
+# # choice_dist = 'TruncGenNorm'
+# # choice_param_value = 5
+# # choice_param_name = 'beta'
+# if choice_dist == 'TruncNorm':
+#     mult_std = choice_param_value
+#     df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tn_std_{mult_std}.pkl')
+#     df_depths_is_1 = pd.read_pickle(f'df_depths_is_tn_std_{mult_std}.pkl')
+# else:
+#     beta = choice_param_value
+#     df_storm_sample_is_1 = pd.read_pickle(f'df_storm_sample_is_tgn_beta_{beta}.pkl')
+#     df_depths_is_1 = pd.read_pickle(f'df_depths_is_tgn_beta_{beta}.pkl')
 
 
-#%% Centroid file
-sp_centroid = ds.sp_points_from_df_xy(df_storms, crs=sp_watershed.crs)
-sp_centroid.to_file('storm_centroid.shp')
+# #%% Centroid file
+# sp_centroid = ds.sp_points_from_df_xy(df_storms, crs=sp_watershed.crs)
+# sp_centroid.to_file('storm_centroid.shp')
 
-#%%
-i = 0
-_df_storm_sample_mc_0 = df_storm_sample_mc_0.iloc[[i]]
-row = df_depths_mc_0.iloc[i]
+# #%%
+# i = 0
+# _df_storm_sample_mc_0 = df_storm_sample_mc_0.iloc[[i]]
+# row = df_depths_mc_0.iloc[i]
 
-sp_centroid_sample = ds.sp_points_from_df_xy(df_storms.loc[lambda _: _.name == row['name']], crs=sp_watershed.crs)
-sp_centroid_sample.to_file('_sample_sp_centroid_sample.shp')
+# sp_centroid_sample = ds.sp_points_from_df_xy(df_storms.loc[lambda _: _.name == row['name']], crs=sp_watershed.crs)
+# sp_centroid_sample.to_file('_sample_sp_centroid_sample.shp')
 
-sp_centroid_sample_shifted = ds.sp_points_from_df_xy(_df_storm_sample_mc_0, column_x='x_sampled', column_y='y_sampled', crs=sp_watershed.crs)
-sp_centroid_sample_shifted.to_file('_sample_sp_centroid_sample_shifted.shp')
+# sp_centroid_sample_shifted = ds.sp_points_from_df_xy(_df_storm_sample_mc_0, column_x='x_sampled', column_y='y_sampled', crs=sp_watershed.crs)
+# sp_centroid_sample_shifted.to_file('_sample_sp_centroid_sample_shifted.shp')
 
-sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
-sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
+# sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
+# sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
 
-row['depth']
-get_raster_values_in_polygon(row.path, sp_watershed_shifted)
+# row['depth']
+# get_raster_values_in_polygon(row.path, sp_watershed_shifted)
 
-#%%
-df_storm_sample = df_storm_sample_mc_0.sample(1500)
-df_1 = shift_and_compute_depth(df_storm_sample, sp_watershed)
-df_2 = shift_and_compute_depth(df_storm_sample, sp_watershed, parallel=True)
+# #%%
+# df_storm_sample = df_storm_sample_mc_0.sample(1500)
+# df_1 = shift_and_compute_depth(df_storm_sample, sp_watershed)
+# df_2 = shift_and_compute_depth(df_storm_sample, sp_watershed, parallel=True)
 
-df_1.equals(df_2)
+# df_1.equals(df_2)
 
 #endregion -----------------------------------------------------------------------------------------
 #region Convert geojson to shp
@@ -2461,6 +2461,265 @@ try:
 
 except ValueError as e:
     print(f"Error creating truncated distribution: {e}")
+
+#endregion -----------------------------------------------------------------------------------------
+#region Seaborn Pair Plot
+
+#%%
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# sns.pairplot(df_storm_stats.drop(columns=['x', 'y']))
+# plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
+#region Rotated Normal Test
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+
+class RotatedNormal:
+    """
+    A rotated 2D Normal distribution.
+
+    This class creates a multivariate normal distribution that is defined by the
+    means, the standard deviations along its principal axes, and a rotation
+    angle for those axes.
+
+    Args:
+        mean (tuple or list): A 2-element sequence [mean_x, mean_y] for the center.
+        stds (tuple or list): A 2-element sequence [std_x, std_y] for the standard
+                              deviations along the principal axes.
+        angle_degrees (float): The rotation angle of the distribution's principal
+                               axes in degrees.
+    """
+    def __init__(self, mean, stds, angle_degrees):
+        self.mean = np.array(mean)
+        self.stds = np.array(stds)
+        self.angle_rad = np.deg2rad(angle_degrees)
+
+        # 1. Create the mean vector
+        # This is already done with self.mean
+
+        # 2. Create the covariance matrix
+        # Start with the unrotated covariance matrix (variances on the diagonal)
+        variances = self.stds**2
+        cov_unrotated = np.diag(variances)
+
+        # Create the 2D rotation matrix
+        c, s = np.cos(self.angle_rad), np.sin(self.angle_rad)
+        rotation_matrix = np.array([[c, -s],
+                                    [s,  c]])
+
+        # Apply the rotation to the unrotated covariance matrix
+        # using the formula: R * C * R^T
+        # In numpy, R.T is the transpose and @ is matrix multiplication
+        self.cov = rotation_matrix @ cov_unrotated @ rotation_matrix.T
+
+        # 3. Create the underlying scipy multivariate normal distribution
+        self.dist = stats.multivariate_normal(mean=self.mean, cov=self.cov)
+
+    def pdf(self, x):
+        """
+        Probability density function.
+        """
+        return self.dist.pdf(x)
+
+    def rvs(self, size=1, random_state=None):
+        """
+        Draw random samples from the distribution.
+        """
+        return self.dist.rvs(size=size, random_state=random_state)
+
+    def cdf(self, x):
+        """
+        Cumulative distribution function.
+        """
+        return self.dist.cdf(x)
+
+# --- --- --- --- ---
+#  Example Usage
+# --- --- --- --- ---
+
+# 1. Define the parameters for our custom distribution
+mean_xy = [2, 5]       # Center of the distribution
+stds_xy = [3, 1]       # Std dev along major and minor axes (long and skinny)
+angle = 45             # Rotation in degrees
+
+# 2. Create an instance of our RotatedNormal distribution
+my_dist = RotatedNormal(mean=mean_xy, stds=stds_xy, angle_degrees=angle)
+
+# Print the calculated mean and covariance matrix
+print("Mean Vector:\n", my_dist.mean)
+print("\nCovariance Matrix:\n", my_dist.cov)
+
+# 3. Use the distribution just like a scipy object
+# Generate 1000 random samples
+n_samples = 2000
+samples = my_dist.rvs(size=n_samples, random_state=42)
+
+# Calculate the PDF at a specific point
+pdf_at_mean = my_dist.pdf(mean_xy)
+print(f"\nPDF at the mean ({mean_xy}): {pdf_at_mean:.4f}")
+
+# 4. Visualize the results
+plt.figure(figsize=(10, 10))
+
+# Plot the random samples
+plt.scatter(samples[:, 0], samples[:, 1], alpha=0.4, label='Random Samples (RVS)')
+
+# Create a grid to evaluate the PDF on
+x = np.linspace(-5, 10, 300)
+y = np.linspace(-2, 12, 300)
+xx, yy = np.meshgrid(x, y)
+pos = np.dstack((xx, yy))
+
+# Plot the PDF contours
+plt.contour(xx, yy, my_dist.pdf(pos), levels=5, colors='red', linewidths=2, label='PDF Contours')
+
+# Mark the mean
+plt.plot(mean_xy[0], mean_xy[1], 'k+', markersize=15, markeredgewidth=2, label='Mean')
+
+plt.title(f'Rotated 2D Normal Distribution\nMean={mean_xy}, Stds={stds_xy}, Angle={angle}°')
+plt.xlabel('X-axis')
+plt.ylabel('Y-axis')
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.6)
+# Use 'equal' aspect ratio to see the rotation without distortion
+plt.axis('equal') 
+plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
+#region Rotated Normal with Polygon Check
+
+#%%
+from src.stats.distributions import RotatedNormal
+
+#%%
+import matplotlib.pyplot as plt
+from shapely.geometry import Polygon
+from scipy import stats
+from shapely.geometry import Polygon
+
+#%%
+def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
+    """
+    Fits a RotatedNormal distribution to a shapely Polygon.
+
+    Args:
+        polygon (shapely.geometry.Polygon): The polygon to fit.
+        coverage_factor (float): A scaling factor for the standard deviations.
+            A value of 1.0 means the std dev will match the vertex spread.
+            A value < 1.0 (e.g., 0.5) will "pull in" the distribution to ensure
+            more samples fall inside the polygon boundary. Recommended range: 0.3-0.7.
+
+    Returns:
+        RotatedNormal: An instance of the RotatedNormal class fitted to the polygon.
+    """
+    # 1. Get polygon vertices
+    # Note: polygon.exterior.coords includes a closing point, which we slice off
+    points = np.array(polygon.exterior.coords[:-1])
+
+    # 2. Calculate the mean (centroid)
+    # Using polygon.centroid is more accurate than the mean of vertices for irregular shapes
+    centroid = np.array(polygon.centroid.coords[0])
+
+    # 3. Perform PCA on the vertices
+    # a. Center the data
+    centered_points = points - centroid
+
+    # b. Calculate the covariance matrix
+    # Note: ddof=1 for sample covariance, which is standard
+    cov = np.cov(centered_points, rowvar=False, ddof=1)
+
+    # c. Get eigenvalues and eigenvectors
+    # eigh is for symmetric matrices and returns sorted eigenvalues
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+
+    # 4. Extract parameters
+    # The eigenvalues are sorted smallest to largest. We want the largest first.
+    order = eigenvalues.argsort()[::-1]
+    eigenvalues = eigenvalues[order]
+    eigenvectors = eigenvectors[:, order]
+
+    # a. The angle is from the first eigenvector (the principal axis)
+    # We use arctan2 to get the angle from the vector components
+    angle_rad = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
+    angle_deg = np.rad2deg(angle_rad)
+
+    # b. The standard deviations are the square root of the eigenvalues
+    # We apply the coverage_factor here to control how "tight" the fit is.
+    stds = np.sqrt(eigenvalues) * coverage_factor
+
+    print("--- Fit Results ---")
+    print(f"Centroid (Mean): {centroid}")
+    print(f"Angle (Degrees): {angle_deg:.2f}")
+    print(f"Stds (scaled): {stds}")
+    print("--------------------")
+
+    # 5. Create the RotatedNormal distribution with these parameters
+    return RotatedNormal(mean=centroid, stds=stds, angle_degrees=angle_deg)
+
+#%%
+# --- --- --- --- ---
+#  Example Usage
+# --- --- --- --- ---
+
+# 1. Create an irregular, rotated polygon
+poly_coords = [(1, 2), (2, 5), (3, 7), (9, 9), (6, 4), (7, 1), (5, 1), (2, 0)]
+irregular_poly = Polygon(poly_coords)
+
+# 2. Fit the distribution to the polygon
+# A smaller coverage_factor makes the distribution tighter inside the polygon.
+# Let's use 0.5, which means the polygon vertices are about 2 standard deviations out.
+fitted_dist = fit_rotated_normal_to_polygon(irregular_poly, coverage_factor=0.5)
+
+# 3. Generate samples from our new fitted distribution
+samples = fitted_dist.rvs(size=2000, random_state=42)
+
+# 4. Visualize the results
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Plot the polygon
+x, y = irregular_poly.exterior.xy
+ax.plot(x, y, color='blue', linewidth=3, solid_capstyle='round', zorder=2, label='Original Polygon')
+ax.fill(x, y, alpha=0.2, color='blue', zorder=1)
+
+# Plot the random samples
+ax.scatter(samples[:, 0], samples[:, 1], alpha=0.5, s=10, label='Sampled Points')
+
+# Plot the centroid (mean)
+ax.plot(fitted_dist.mean[0], fitted_dist.mean[1], 'k+', markersize=15, markeredgewidth=3, label='Centroid (Mean)')
+
+# Plot the PDF contours
+g_x = np.linspace(-1, 8, 200)
+g_y = np.linspace(0, 7, 200)
+xx, yy = np.meshgrid(g_x, g_y)
+pos = np.dstack((xx, yy))
+ax.contour(xx, yy, fitted_dist.pdf(pos), levels=4, colors='red', linewidths=2, zorder=3, label='PDF Contours')
+
+ax.set_title("Rotated Normal Distribution Fitted to a Polygon")
+ax.legend()
+ax.axis('equal')
+ax.grid(True, linestyle='--', alpha=0.6)
+plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
+#region Copy file
+
+#%%
+import shutil
+
+#%%
+file_name = '20201016_T392'
+file_extension = 'dss'
+folder_from = 'D:\FEMA Innovations\SO3.1\Data\Duwamish\Duwamish-v01-20231128\dss'
+folder_to = 'D:\Temp\RAS\ROGCheck'
+
+#%%
+shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\{file_name}.{file_extension}')
+shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\rog.{file_extension}')
 
 #endregion -----------------------------------------------------------------------------------------
 #region ARCHIVE Tests of Importance Sampling
@@ -3034,7 +3293,7 @@ plt.show() # Might be needed depending on environment
 # )
 
 #endregion -----------------------------------------------------------------------------------------
-#region 
+#region ARCHIVE Pathlib Windows and Linux
 
 #%%
 import platform
@@ -3044,7 +3303,7 @@ if platform.system() == 'Windows':
     pathlib.PosixPath = pathlib.WindowsPath
 
 #endregion -----------------------------------------------------------------------------------------
-#region 
+#region ARCHIVE Unknown Test
 
 #%%
 import random
@@ -3257,292 +3516,33 @@ if __name__ == "__main__":
         print("Monte Carlo estimation failed.")
 
 #endregion -----------------------------------------------------------------------------------------
-#region Copy file
+#region ARCHIVE Tests
 
-#%%
-import shutil
+# #%% Select Watershed
+# name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+# folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
-#%%
-file_name = '20201016_T392'
-file_extension = 'dss'
-folder_from = 'D:\FEMA Innovations\SO3.1\Data\Duwamish\Duwamish-v01-20231128\dss'
-folder_to = 'D:\Temp\RAS\ROGCheck'
+# os.chdir(folder_watershed)
+# cwd = pathlib.Path.cwd()
 
-#%%
-shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\{file_name}.{file_extension}')
-shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\rog.{file_extension}')
+# sp_watershed, sp_domain, df_storms = read_catalog(folder_watershed)
 
-#endregion -----------------------------------------------------------------------------------------
-#region 
+# v_watershed_stats = get_sp_stats(sp_watershed)
+# v_domain_stats = get_sp_stats(sp_domain)
 
-#%%
-# import seaborn as sns
-# import matplotlib.pyplot as plt
-# sns.pairplot(df_storm_stats.drop(columns=['x', 'y']))
-# plt.show()
+# #%%
+# n_sim_mc = 100
+# df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
 
-#endregion -----------------------------------------------------------------------------------------
-#region 
+# df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
-#%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
-folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
+# df_depths_mc_0b = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
-os.chdir(folder_watershed)
-cwd = pathlib.Path.cwd()
+# df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
-sp_watershed, sp_domain, df_storms = read_catalog(folder_watershed)
-
-v_watershed_stats = get_sp_stats(sp_watershed)
-v_domain_stats = get_sp_stats(sp_domain)
-
-#%%
-n_sim_mc = 100
-df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
-
-df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
-
-df_depths_mc_0b = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
-
-df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
-
-#%%
-(pd.concat([df_depths_mc_0[['depth']].rename(columns={'depth': 'depth_mean'}), df_depths_mc_0b[['depth']].rename(columns={'depth': 'depth_sum'})], axis=1)
-    .assign(diff = lambda _: _.depth_mean - _.depth_sum)
-)
-
-#endregion -----------------------------------------------------------------------------------------
-#region Rotated Normal Test
-
-#%%
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy import stats
-
-class RotatedNormal:
-    """
-    A rotated 2D Normal distribution.
-
-    This class creates a multivariate normal distribution that is defined by the
-    means, the standard deviations along its principal axes, and a rotation
-    angle for those axes.
-
-    Args:
-        mean (tuple or list): A 2-element sequence [mean_x, mean_y] for the center.
-        stds (tuple or list): A 2-element sequence [std_x, std_y] for the standard
-                              deviations along the principal axes.
-        angle_degrees (float): The rotation angle of the distribution's principal
-                               axes in degrees.
-    """
-    def __init__(self, mean, stds, angle_degrees):
-        self.mean = np.array(mean)
-        self.stds = np.array(stds)
-        self.angle_rad = np.deg2rad(angle_degrees)
-
-        # 1. Create the mean vector
-        # This is already done with self.mean
-
-        # 2. Create the covariance matrix
-        # Start with the unrotated covariance matrix (variances on the diagonal)
-        variances = self.stds**2
-        cov_unrotated = np.diag(variances)
-
-        # Create the 2D rotation matrix
-        c, s = np.cos(self.angle_rad), np.sin(self.angle_rad)
-        rotation_matrix = np.array([[c, -s],
-                                    [s,  c]])
-
-        # Apply the rotation to the unrotated covariance matrix
-        # using the formula: R * C * R^T
-        # In numpy, R.T is the transpose and @ is matrix multiplication
-        self.cov = rotation_matrix @ cov_unrotated @ rotation_matrix.T
-
-        # 3. Create the underlying scipy multivariate normal distribution
-        self.dist = stats.multivariate_normal(mean=self.mean, cov=self.cov)
-
-    def pdf(self, x):
-        """
-        Probability density function.
-        """
-        return self.dist.pdf(x)
-
-    def rvs(self, size=1, random_state=None):
-        """
-        Draw random samples from the distribution.
-        """
-        return self.dist.rvs(size=size, random_state=random_state)
-
-    def cdf(self, x):
-        """
-        Cumulative distribution function.
-        """
-        return self.dist.cdf(x)
-
-# --- --- --- --- ---
-#  Example Usage
-# --- --- --- --- ---
-
-# 1. Define the parameters for our custom distribution
-mean_xy = [2, 5]       # Center of the distribution
-stds_xy = [3, 1]       # Std dev along major and minor axes (long and skinny)
-angle = 45             # Rotation in degrees
-
-# 2. Create an instance of our RotatedNormal distribution
-my_dist = RotatedNormal(mean=mean_xy, stds=stds_xy, angle_degrees=angle)
-
-# Print the calculated mean and covariance matrix
-print("Mean Vector:\n", my_dist.mean)
-print("\nCovariance Matrix:\n", my_dist.cov)
-
-# 3. Use the distribution just like a scipy object
-# Generate 1000 random samples
-n_samples = 2000
-samples = my_dist.rvs(size=n_samples, random_state=42)
-
-# Calculate the PDF at a specific point
-pdf_at_mean = my_dist.pdf(mean_xy)
-print(f"\nPDF at the mean ({mean_xy}): {pdf_at_mean:.4f}")
-
-# 4. Visualize the results
-plt.figure(figsize=(10, 10))
-
-# Plot the random samples
-plt.scatter(samples[:, 0], samples[:, 1], alpha=0.4, label='Random Samples (RVS)')
-
-# Create a grid to evaluate the PDF on
-x = np.linspace(-5, 10, 300)
-y = np.linspace(-2, 12, 300)
-xx, yy = np.meshgrid(x, y)
-pos = np.dstack((xx, yy))
-
-# Plot the PDF contours
-plt.contour(xx, yy, my_dist.pdf(pos), levels=5, colors='red', linewidths=2, label='PDF Contours')
-
-# Mark the mean
-plt.plot(mean_xy[0], mean_xy[1], 'k+', markersize=15, markeredgewidth=2, label='Mean')
-
-plt.title(f'Rotated 2D Normal Distribution\nMean={mean_xy}, Stds={stds_xy}, Angle={angle}°')
-plt.xlabel('X-axis')
-plt.ylabel('Y-axis')
-plt.legend()
-plt.grid(True, linestyle='--', alpha=0.6)
-# Use 'equal' aspect ratio to see the rotation without distortion
-plt.axis('equal') 
-plt.show()
-
-#endregion -----------------------------------------------------------------------------------------
-#region Rotated Normal with Polygon Check
-
-#%%
-from src.stats.distributions import RotatedNormal
-
-#%%
-import matplotlib.pyplot as plt
-from shapely.geometry import Polygon
-from scipy import stats
-from shapely.geometry import Polygon
-
-#%%
-def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
-    """
-    Fits a RotatedNormal distribution to a shapely Polygon.
-
-    Args:
-        polygon (shapely.geometry.Polygon): The polygon to fit.
-        coverage_factor (float): A scaling factor for the standard deviations.
-            A value of 1.0 means the std dev will match the vertex spread.
-            A value < 1.0 (e.g., 0.5) will "pull in" the distribution to ensure
-            more samples fall inside the polygon boundary. Recommended range: 0.3-0.7.
-
-    Returns:
-        RotatedNormal: An instance of the RotatedNormal class fitted to the polygon.
-    """
-    # 1. Get polygon vertices
-    # Note: polygon.exterior.coords includes a closing point, which we slice off
-    points = np.array(polygon.exterior.coords[:-1])
-
-    # 2. Calculate the mean (centroid)
-    # Using polygon.centroid is more accurate than the mean of vertices for irregular shapes
-    centroid = np.array(polygon.centroid.coords[0])
-
-    # 3. Perform PCA on the vertices
-    # a. Center the data
-    centered_points = points - centroid
-
-    # b. Calculate the covariance matrix
-    # Note: ddof=1 for sample covariance, which is standard
-    cov = np.cov(centered_points, rowvar=False, ddof=1)
-
-    # c. Get eigenvalues and eigenvectors
-    # eigh is for symmetric matrices and returns sorted eigenvalues
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
-
-    # 4. Extract parameters
-    # The eigenvalues are sorted smallest to largest. We want the largest first.
-    order = eigenvalues.argsort()[::-1]
-    eigenvalues = eigenvalues[order]
-    eigenvectors = eigenvectors[:, order]
-
-    # a. The angle is from the first eigenvector (the principal axis)
-    # We use arctan2 to get the angle from the vector components
-    angle_rad = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
-    angle_deg = np.rad2deg(angle_rad)
-
-    # b. The standard deviations are the square root of the eigenvalues
-    # We apply the coverage_factor here to control how "tight" the fit is.
-    stds = np.sqrt(eigenvalues) * coverage_factor
-
-    print("--- Fit Results ---")
-    print(f"Centroid (Mean): {centroid}")
-    print(f"Angle (Degrees): {angle_deg:.2f}")
-    print(f"Stds (scaled): {stds}")
-    print("--------------------")
-
-    # 5. Create the RotatedNormal distribution with these parameters
-    return RotatedNormal(mean=centroid, stds=stds, angle_degrees=angle_deg)
-
-#%%
-# --- --- --- --- ---
-#  Example Usage
-# --- --- --- --- ---
-
-# 1. Create an irregular, rotated polygon
-poly_coords = [(1, 2), (2, 5), (3, 7), (9, 9), (6, 4), (7, 1), (5, 1), (2, 0)]
-irregular_poly = Polygon(poly_coords)
-
-# 2. Fit the distribution to the polygon
-# A smaller coverage_factor makes the distribution tighter inside the polygon.
-# Let's use 0.5, which means the polygon vertices are about 2 standard deviations out.
-fitted_dist = fit_rotated_normal_to_polygon(irregular_poly, coverage_factor=0.5)
-
-# 3. Generate samples from our new fitted distribution
-samples = fitted_dist.rvs(size=2000, random_state=42)
-
-# 4. Visualize the results
-fig, ax = plt.subplots(figsize=(10, 10))
-
-# Plot the polygon
-x, y = irregular_poly.exterior.xy
-ax.plot(x, y, color='blue', linewidth=3, solid_capstyle='round', zorder=2, label='Original Polygon')
-ax.fill(x, y, alpha=0.2, color='blue', zorder=1)
-
-# Plot the random samples
-ax.scatter(samples[:, 0], samples[:, 1], alpha=0.5, s=10, label='Sampled Points')
-
-# Plot the centroid (mean)
-ax.plot(fitted_dist.mean[0], fitted_dist.mean[1], 'k+', markersize=15, markeredgewidth=3, label='Centroid (Mean)')
-
-# Plot the PDF contours
-g_x = np.linspace(-1, 8, 200)
-g_y = np.linspace(0, 7, 200)
-xx, yy = np.meshgrid(g_x, g_y)
-pos = np.dstack((xx, yy))
-ax.contour(xx, yy, fitted_dist.pdf(pos), levels=4, colors='red', linewidths=2, zorder=3, label='PDF Contours')
-
-ax.set_title("Rotated Normal Distribution Fitted to a Polygon")
-ax.legend()
-ax.axis('equal')
-ax.grid(True, linestyle='--', alpha=0.6)
-plt.show()
+# #%%
+# (pd.concat([df_depths_mc_0[['depth']].rename(columns={'depth': 'depth_mean'}), df_depths_mc_0b[['depth']].rename(columns={'depth': 'depth_sum'})], axis=1)
+#     .assign(diff = lambda _: _.depth_mean - _.depth_sum)
+# )
 
 #endregion -----------------------------------------------------------------------------------------
