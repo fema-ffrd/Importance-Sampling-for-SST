@@ -3312,3 +3312,118 @@ df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 )
 
 #endregion -----------------------------------------------------------------------------------------
+#region Rotated Normal Check
+
+#%%
+from src.stats.distributions import RotatedNormal
+
+#%%
+import matplotlib.pyplot as plt
+from shapely.geometry import Polygon
+from scipy import stats
+
+#%%
+def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
+    """
+    Fits a RotatedNormal distribution to a shapely Polygon.
+
+    Args:
+        polygon (shapely.geometry.Polygon): The polygon to fit.
+        coverage_factor (float): A scaling factor for the standard deviations.
+            A value of 1.0 means the std dev will match the vertex spread.
+            A value < 1.0 (e.g., 0.5) will "pull in" the distribution to ensure
+            more samples fall inside the polygon boundary. Recommended range: 0.3-0.7.
+
+    Returns:
+        RotatedNormal: An instance of the RotatedNormal class fitted to the polygon.
+    """
+    # 1. Get polygon vertices
+    # Note: polygon.exterior.coords includes a closing point, which we slice off
+    points = np.array(polygon.exterior.coords[:-1])
+
+    # 2. Calculate the mean (centroid)
+    # Using polygon.centroid is more accurate than the mean of vertices for irregular shapes
+    centroid = np.array(polygon.centroid.coords[0])
+
+    # 3. Perform PCA on the vertices
+    # a. Center the data
+    centered_points = points - centroid
+
+    # b. Calculate the covariance matrix
+    # Note: ddof=1 for sample covariance, which is standard
+    cov = np.cov(centered_points, rowvar=False, ddof=1)
+
+    # c. Get eigenvalues and eigenvectors
+    # eigh is for symmetric matrices and returns sorted eigenvalues
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+
+    # 4. Extract parameters
+    # The eigenvalues are sorted smallest to largest. We want the largest first.
+    order = eigenvalues.argsort()[::-1]
+    eigenvalues = eigenvalues[order]
+    eigenvectors = eigenvectors[:, order]
+
+    # a. The angle is from the first eigenvector (the principal axis)
+    # We use arctan2 to get the angle from the vector components
+    angle_rad = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
+    angle_deg = np.rad2deg(angle_rad)
+
+    # b. The standard deviations are the square root of the eigenvalues
+    # We apply the coverage_factor here to control how "tight" the fit is.
+    stds = np.sqrt(eigenvalues) * coverage_factor
+
+    print("--- Fit Results ---")
+    print(f"Centroid (Mean): {centroid}")
+    print(f"Angle (Degrees): {angle_deg:.2f}")
+    print(f"Stds (scaled): {stds}")
+    print("--------------------")
+
+    # 5. Create the RotatedNormal distribution with these parameters
+    return RotatedNormal(mean=centroid, stds=stds, angle_degrees=angle_deg)
+
+#%%
+# --- --- --- --- ---
+#  Example Usage
+# --- --- --- --- ---
+
+# 1. Create an irregular, rotated polygon
+poly_coords = [(1, 2), (2, 5), (3, 7), (4, 4), (6, 4), (7, 1), (5, 1), (2, 0)]
+irregular_poly = Polygon(poly_coords)
+
+# 2. Fit the distribution to the polygon
+# A smaller coverage_factor makes the distribution tighter inside the polygon.
+# Let's use 0.5, which means the polygon vertices are about 2 standard deviations out.
+fitted_dist = fit_rotated_normal_to_polygon(irregular_poly, coverage_factor=0.5)
+
+# 3. Generate samples from our new fitted distribution
+samples = fitted_dist.rvs(size=2000, random_state=42)
+
+# 4. Visualize the results
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# Plot the polygon
+x, y = irregular_poly.exterior.xy
+ax.plot(x, y, color='blue', linewidth=3, solid_capstyle='round', zorder=2, label='Original Polygon')
+ax.fill(x, y, alpha=0.2, color='blue', zorder=1)
+
+# Plot the random samples
+ax.scatter(samples[:, 0], samples[:, 1], alpha=0.5, s=10, label='Sampled Points')
+
+# Plot the centroid (mean)
+ax.plot(fitted_dist.mean[0], fitted_dist.mean[1], 'k+', markersize=15, markeredgewidth=3, label='Centroid (Mean)')
+
+# Plot the PDF contours
+g_x = np.linspace(-1, 8, 200)
+g_y = np.linspace(0, 7, 200)
+xx, yy = np.meshgrid(g_x, g_y)
+pos = np.dstack((xx, yy))
+ax.contour(xx, yy, fitted_dist.pdf(pos), levels=4, colors='red', linewidths=2, zorder=3, label='PDF Contours')
+
+ax.set_title("Normal Distribution Fitted to a Polygon using PCA")
+ax.legend()
+ax.axis('equal')
+ax.grid(True, linestyle='--', alpha=0.6)
+plt.show()
+
+
+#endregion -----------------------------------------------------------------------------------------

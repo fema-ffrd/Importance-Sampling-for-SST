@@ -625,4 +625,64 @@ class MixtureDistribution:
                 f"                    dist2={d2_repr}, \n"
                 f"                    weight1={self.weight1:.3f})")
 
+#%% Rotated Normal Distribution
+class RotatedNormal:
+    """
+    A rotated 2D Normal distribution.
+
+    This class creates a multivariate normal distribution that is defined by the
+    means, the standard deviations along its principal axes, and a rotation
+    angle for those axes.
+
+    Args:
+        mean (tuple or list): A 2-element sequence [mean_x, mean_y] for the center.
+        stds (tuple or list): A 2-element sequence [std_x, std_y] for the standard
+                              deviations along the principal axes.
+        angle_degrees (float): The rotation angle of the distribution's principal
+                               axes in degrees.
+    """
+    def __init__(self, mean, stds, angle_degrees):
+        self.mean = np.array(mean)
+        self.stds = np.array(stds)
+        self.angle_rad = np.deg2rad(angle_degrees)
+
+        # 1. Create the mean vector
+        # This is already done with self.mean
+
+        # 2. Create the covariance matrix
+        # Start with the unrotated covariance matrix (variances on the diagonal)
+        variances = self.stds**2
+        cov_unrotated = np.diag(variances)
+
+        # Create the 2D rotation matrix
+        c, s = np.cos(self.angle_rad), np.sin(self.angle_rad)
+        rotation_matrix = np.array([[c, -s],
+                                    [s,  c]])
+
+        # Apply the rotation to the unrotated covariance matrix
+        # using the formula: R * C * R^T
+        # In numpy, R.T is the transpose and @ is matrix multiplication
+        self.cov = rotation_matrix @ cov_unrotated @ rotation_matrix.T
+
+        # 3. Create the underlying scipy multivariate normal distribution
+        self.dist = stats.multivariate_normal(mean=self.mean, cov=self.cov)
+
+    def pdf(self, x):
+        """
+        Probability density function.
+        """
+        return self.dist.pdf(x)
+
+    def rvs(self, size=1, random_state=None):
+        """
+        Draw random samples from the distribution.
+        """
+        return self.dist.rvs(size=size, random_state=random_state)
+
+    def cdf(self, x):
+        """
+        Cumulative distribution function.
+        """
+        return self.dist.cdf(x)
+
 #endregion -----------------------------------------------------------------------------------------
