@@ -42,9 +42,6 @@ if __name__ == '__main__':
     sp_watershed, sp_domain, df_storms = read_catalog(folder_watershed)
     df_storms = df_storms.assign(path = lambda _: _.path.apply(lambda _x: _x.absolute()))
 
-    #%% Read parameters
-    df_dist_params = read_param_scheme(folder_watershed)
-
     #%% Get polygon info (bounds, centroids, ranges)
     v_watershed_stats = get_sp_stats(sp_watershed)
     v_domain_stats = get_sp_stats(sp_domain)
@@ -62,6 +59,9 @@ if __name__ == '__main__':
     df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_0.pkl')
     df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_0.pkl')
     df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_0.pkl')
+
+    #%% Read parameters
+    df_dist_params = read_param_scheme(folder_watershed)
 
     #%% For different N
     for n_sim_is in v_n_sim_is:
