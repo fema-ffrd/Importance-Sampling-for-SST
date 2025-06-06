@@ -28,7 +28,7 @@ from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistrib
 from src.stats.distribution_helpers import truncnorm_params
 from src.sst.sst_simulation import simulate_sst
 from src.evaluation.sampling_eval import print_sim_stats
-from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_freq_curve
+from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_xy_vs_depth_2d, plot_freq_curve
 
 #endregion -----------------------------------------------------------------------------------------
 #region Set Watershed
@@ -159,6 +159,11 @@ g_x.show()
 g_y.show()
 # g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
 # g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+
+#%% Plot depth vs coordinates 2D (for full MC)
+g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain)
+g_xy.show()
+# g_xy.save(cwd/'plots'/f'Check xy vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #%% Distribution of sampled points
 g = plot_sample_centers(df_depths_is, sp_watershed, sp_domain, v_domain_stats)

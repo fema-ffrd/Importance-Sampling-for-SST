@@ -29,7 +29,7 @@ from src.sst.sst_simulation import simulate_sst_iter
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder
@@ -104,19 +104,19 @@ if __name__ == '__main__':
         df_aep_summary_is_iter.to_pickle(cwd/'pickle'/f'df_aep_summaryisc_iter_n_{n_sim_is}x{n_iter}.pkl')
     
     #%% Read Ground Truth results
-    df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
+    # df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
     df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_prob_mc_0.pkl')
     df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_aep_mc_0.pkl')
         
     #%% Plot uncertainty analysis results
     for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
         #%% Read uncertainty analysis results
-        df_depths_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+        # df_depths_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_prob_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_summary_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_summary_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
 
-        df_depths_is_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_is_iter_n_{n_sim_is}x{n_iter}.pkl')
+        # df_depths_is_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_prob_is_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_is_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_is_iter_n_{n_sim_is}x{n_iter}.pkl')
         df_aep_summary_is_iter = pd.read_pickle(cwd/'pickle'/f'df_aep_summaryisc_iter_n_{n_sim_is}x{n_iter}.pkl')
@@ -144,7 +144,7 @@ if __name__ == '__main__':
                 axis_title_y = pn.element_text(ha = 'left'),
             )
         )
-        g.show()
-        # g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{int(n_sim_mc/n_sim_is)} {row_dist_params.name_file}.png', width=10, height=7)
+        # g.show()
+        g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------

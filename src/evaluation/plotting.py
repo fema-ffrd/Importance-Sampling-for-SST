@@ -147,6 +147,55 @@ def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
 
 #%%
 #TODO
+def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain):
+    num_bins = 20
+    
+    # Create the bin edges for both x and y axes
+    # This ensures our grid covers the entire data range.
+    x_bins = np.linspace(df_depths['x_sampled'].min(), df_depths['x_sampled'].max(), num_bins + 1)
+    y_bins = np.linspace(df_depths['y_sampled'].min(), df_depths['y_sampled'].max(), num_bins + 1)
+    
+    # Assign each point to an x and y interval (bin)
+    df_depths['x_interval'] = pd.cut(df_depths['x_sampled'], bins=x_bins, include_lowest=True)
+    df_depths['y_interval'] = pd.cut(df_depths['y_sampled'], bins=y_bins, include_lowest=True)
+    
+    # Group by the interval bins and sum the values
+    df_summary = df_depths.groupby(['x_interval', 'y_interval'], observed=False).agg(
+        value_sum=('depth', 'sum')
+    ).reset_index()
+    
+    # ---- CRUCIAL STEP: Calculate numeric properties for plotting ----
+    # Get the numeric center of each interval for the x and y coordinates
+    df_summary['x_center'] = df_summary['x_interval'].apply(lambda i: i.mid).astype(float)
+    df_summary['y_center'] = df_summary['y_interval'].apply(lambda i: i.mid).astype(float)
+    
+    # Get the width and height of each tile from the interval size
+    df_summary['tile_width'] = df_summary['x_interval'].apply(lambda i: i.right - i.left)
+    df_summary['tile_height'] = df_summary['y_interval'].apply(lambda i: i.right - i.left)
+    
+    g = \
+    (pn.ggplot(df_summary)  # Start with the summary dataframe
+        + pn.geom_tile(pn.aes(
+            x='x_center',
+            y='y_center',
+            fill='value_sum',
+        ))
+        + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
+        + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
+        + pn.scale_fill_distiller(type="seq", palette="Blues", direction=1, name="Total Depth") # direction=1 is light to dark
+        + pn.labs(
+            title="Distribution of total depth in watershed",
+            x="x samples",
+            y="y samples",
+            # fill="Sum of Values"   # The legend title
+        )
+        + pn.theme_bw()
+    )
+    
+    return g
+
+#%%
+#TODO
 def plot_freq_curve(l_df_prob, l_names, l_colors=None, var_x: Literal['return_period', 'prob_exceed']='return_period', downscale=True, downscale_prop=0.001):
     if downscale:
         for i in range(len(l_df_prob)):

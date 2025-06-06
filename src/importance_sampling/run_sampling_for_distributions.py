@@ -23,7 +23,7 @@ from src.preprocessing.param_scheme_reader import read_param_scheme, get_dist_fr
 from src.utils_spatial.spatial_stats import get_sp_stats
 from src.sst.sst_simulation import simulate_sst
 from src.evaluation.sampling_eval import print_sim_stats
-from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_freq_curve
+from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_xy_vs_depth_2d, plot_freq_curve
 
 #endregion -----------------------------------------------------------------------------------------
 #region Main
@@ -31,7 +31,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder
@@ -93,12 +93,22 @@ if __name__ == '__main__':
     df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_prob_mc_0.pkl')
     df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_aep_mc_0.pkl')
     
+    #%% Distribution of sampled points
+    g = plot_sample_centers(df_depths_mc_0, sp_watershed, sp_domain, v_domain_stats)
+    # g.show()
+    g.save(cwd/'plots'/f'XY mc.png', width=10, height=7)
+
     #%% Plot depth vs coordinates (for full MC)
     g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
     # g_x.show()
     # g_y.show()
     g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
     g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
+
+    #%% Plot depth vs coordinates 2D (for full MC)
+    g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain)
+    # g_xy.show()
+    g_xy.save(cwd/'plots'/f'Check xy vs depth for primary Monte Carlo.png', width=10, height=7)
 
     #%% Read and evaluate results
     for n_sim_is in v_n_sim_is:
