@@ -40,6 +40,7 @@ if __name__ == '__main__':
     
     #%% Read watershed, domain, and storm catalogue
     sp_watershed, sp_domain, df_storms = read_catalog(folder_watershed)
+    df_storms = df_storms.assign(path = lambda _: _.path.apply(lambda _x: _x.absolute()))
 
     #%% Read parameters
     df_dist_params = read_param_scheme(folder_watershed)

@@ -49,6 +49,7 @@ cwd = pathlib.Path.cwd()
 
 #%% Read watershed, domain, and storm catalogue
 sp_watershed, sp_domain, df_storms = read_catalog(cwd)
+df_storms = df_storms.assign(path = lambda _: _.path.apply(lambda _x: _x.absolute()))
 
 #%% Get polygon info (bounds, centroids, ranges)
 v_watershed_stats = get_sp_stats(sp_watershed)
