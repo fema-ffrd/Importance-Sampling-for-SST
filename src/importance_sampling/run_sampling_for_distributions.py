@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     #%% Ground truth (Run once)
     # Generate samples, run simulations and get depths
-    df_depths_mc_0, df_prob_mc_0, df_aep_mc_0 = simulate_sst(sp_watershed, df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
+    df_depths_mc_0, df_prob_mc_0, df_aep_mc_0 = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
     df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_0.pkl')
     df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_0.pkl')
     df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_0.pkl')
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     for n_sim_is in v_n_sim_is:
         # Run Monte Carlo for comparison
         # Generate samples, run simulations and get depths
-        df_depths_mc, df_prob_mc, df_aep_mc = simulate_sst(sp_watershed, df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
+        df_depths_mc, df_prob_mc, df_aep_mc = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_is)
         df_depths_mc.to_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_is}.pkl')
         df_prob_mc.to_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_is}.pkl')
         df_aep_mc.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_is}.pkl')
@@ -79,7 +79,7 @@ if __name__ == '__main__':
             dist_x, dist_y = get_dist_from_scheme(row_dist_params, v_watershed_stats, v_domain_stats) 
                 
             # Generate samples, run simulations and get depths
-            df_depths_is, df_prob_is, df_aep_is = simulate_sst(sp_watershed, df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
+            df_depths_is, df_prob_is, df_aep_is = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x, dist_y, num_simulations=n_sim_is)
             df_depths_is.to_pickle(cwd/'pickle'/f'df_depths_is_n_{n_sim_is}_{row_dist_params.name_file}.pkl')
             df_prob_is.to_pickle(cwd/'pickle'/f'df_prob_is_n_{n_sim_is}_{row_dist_params.name_file}.pkl')
             df_aep_is.to_pickle(cwd/'pickle'/f'df_aep_is_n_{n_sim_is}_{row_dist_params.name_file}.pkl')
