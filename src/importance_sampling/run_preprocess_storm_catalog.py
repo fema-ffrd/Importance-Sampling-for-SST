@@ -15,14 +15,15 @@ from src.preprocessing.catalog_preprocessor import preprocess_storm_catalog
 
 #%%
 if __name__ == '__main__':
-    #%% Select Watershed
+    #%% Select watershed
     name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+    folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
     
     #%% Working folder
-    os.chdir(rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}')
+    os.chdir(folder_watershed)
     cwd = pathlib.Path.cwd()
     
     #%% Preprocess the nc files, save storm catalogue to "path_storm"
-    preprocess_storm_catalog(cwd/'nc', 'band_data')
+    preprocess_storm_catalog(folder_watershed, 'band_data', file_type='nc')
 
 #endregion -----------------------------------------------------------------------------------------

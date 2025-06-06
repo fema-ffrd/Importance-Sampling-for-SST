@@ -287,16 +287,16 @@ def calculate_weighted_raster_centroid(raster_path: str, backend: Literal['raste
             pass # Deal with this (throw error? use xarray? return null values?)
 
 #%%
-def preprocess_storm_catalog(folder_storms, nc_data_name='APCP_surface', path_output='data/storm_catalog') -> None:
+def preprocess_storm_catalog_from_nc(folder_storms_nc: str, nc_data_name='APCP_surface', path_output='data/storm_catalog') -> None:
     '''Preprocess storm data. This creates a tif of accumulated rasters and a pickle file with their centroids within 'path_output'.
 
     Args:
-        folder_storms (str): Folder path containing the storm nc files.
+        folder_storms_nc (str): Folder path containing the storm nc files.
         nc_data_name (str, optional): Data name within the nc file. Defaults to 'APCP_surface'.
         path_output (str, optional): Output folder path or folder name to create in current working directory. Defaults to 'storm_catalogue' (in current working directory).
     '''
     # Get list of nc files
-    v_file_storm = get_files_pathlib(folder_storms)
+    v_file_storm = get_files_pathlib(folder_storms_nc)
 
     # Create accumulated raster
     path_storm = pathlib.Path(path_output)
@@ -327,5 +327,19 @@ def preprocess_storm_catalog(folder_storms, nc_data_name='APCP_surface', path_ou
 
     # Save pkl file
     df_storms.to_pickle(path_storm/'catalog.pkl')
+
+#%%
+def preprocess_storm_catalog(folder_watershed: str, nc_data_name='APCP_surface', path_output='data/storm_catalog', file_type:Literal['nc', 'dss']='nc') -> None:
+    '''Preprocess storm data. This creates a tif of accumulated rasters and a pickle file with their centroids within 'path_output'.
+
+    Args:
+        folder_watershed (str): Watershed folder.
+        nc_data_name (str, optional): Data name within the nc file. Defaults to 'APCP_surface'.
+        path_output (str, optional): Output folder path or folder name to create in current working directory. Defaults to 'storm_catalogue' (in current working directory).
+    '''
+    path_watershed = pathlib.Path(folder_watershed)
+    match file_type:
+        case 'nc':
+            preprocess_storm_catalog_from_nc(path_watershed/'nc', nc_data_name, path_output)
 
 #endregion -----------------------------------------------------------------------------------------

@@ -2126,7 +2126,7 @@ import dsplus as ds
 
 from src.utils_spatial.crs_converter import match_crs_to_raster
 from src.sst.storm_center_shifter import shift_gdf
-from src.utils_spatial.zonal_stats import sum_raster_values_in_polygon
+from src.utils_spatial.zonal_stats import get_raster_values_in_polygon
 from src.preprocessing.catalog_reader import read_catalog
 from src.utils_spatial.spatial_stats import get_sp_stats
 from src.sst.storm_sampler import sample_storms
@@ -2185,7 +2185,7 @@ sp_watershed_shifted = shift_gdf(sp_watershed, -row.x_del, -row.y_del)
 sp_watershed_shifted.to_file('_sample_sp_watershed_shifted.shp')
 
 row['depth']
-sum_raster_values_in_polygon(row.path, sp_watershed_shifted)
+get_raster_values_in_polygon(row.path, sp_watershed_shifted)
 
 #%%
 df_storm_sample = df_storm_sample_mc_0.sample(1500)
@@ -3042,5 +3042,273 @@ import pathlib
 
 if platform.system() == 'Windows':
     pathlib.PosixPath = pathlib.WindowsPath
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+import random
+from shapely.geometry import Polygon, Point
+import matplotlib.pyplot as plt # Optional: for visualization
+
+#%%
+def monte_carlo_sample_f_on_polygon(polygon: Polygon, func_f, num_samples: int):
+    """
+    Estimates the average value of a function f(x,y) over a Shapely polygon
+    using Monte Carlo sampling.
+
+    Args:
+        polygon (shapely.geometry.Polygon): The polygon to sample within.
+        func_f (callable): A function that takes two arguments (x, y) and returns a scalar.
+        num_samples (int): The number of valid samples to collect from *inside* the polygon.
+
+    Returns:
+        float: The estimated average value of f(x,y) over the polygon.
+               Returns None if num_samples is 0 or the polygon is invalid/empty.
+    """
+    if not isinstance(polygon, Polygon) or polygon.is_empty:
+        print("Error: Invalid or empty polygon provided.")
+        return None
+    if num_samples <= 0:
+        print("Error: num_samples must be positive.")
+        return None
+
+    minx, miny, maxx, maxy = polygon.bounds
+
+    if not all(isinstance(b, (int, float)) for b in [minx, miny, maxx, maxy]):
+        print(f"Error: Polygon bounds are not valid numbers: {polygon.bounds}")
+        return None
+    
+    if maxx == minx or maxy == miny: # Polygon has zero area (e.g., a line or point)
+        print(f"Warning: Polygon has zero area based on bounds. Bounding box: ({minx},{miny})-({maxx},{maxy})")
+        # For a line or point, we could try to sample on it, but the concept of "area" for f(x,y) changes.
+        # For simplicity, let's assume we're interested in 2D areas.
+        # We could try to sample a single point if it's a Point geometry,
+        # but the problem states "within this polygon", implying an area.
+        # If we *must* sample, we could take the centroid.
+        if polygon.area == 0 and num_samples > 0:
+            # Let's try to evaluate at the centroid if it's a simple case.
+            # This is a bit of a hack for zero-area polygons.
+            try:
+                cx, cy = polygon.centroid.x, polygon.centroid.y
+                if polygon.contains(Point(cx, cy)): # Check if centroid is part of the object
+                    print(f"Warning: Polygon has zero area. Evaluating f at centroid ({cx:.2f}, {cy:.2f}).")
+                    return func_f(cx, cy)
+                else:
+                    print("Error: Polygon has zero area and centroid is not within it. Cannot sample.")
+                    return None
+            except Exception as e:
+                print(f"Error: Could not process zero-area polygon: {e}")
+                return None
+        elif polygon.area > 0 and (maxx == minx or maxy == miny):
+             print("Warning: Polygon has positive area but a degenerate bounding box. This is unusual.")
+
+
+    sum_f_values = 0.0
+    collected_samples = 0
+    
+    # For visualization (optional)
+    accepted_points_x = []
+    accepted_points_y = []
+    
+    attempts = 0 # To prevent infinite loops if polygon is hard to hit
+    max_attempts_factor = 100 # Allow 100x num_samples attempts in total
+
+    while collected_samples < num_samples:
+        attempts += 1
+        if attempts > num_samples * max_attempts_factor and collected_samples == 0:
+            print(f"Error: Failed to find any points inside the polygon after {attempts} attempts.")
+            print(f"Polygon bounds: {polygon.bounds}")
+            print(f"Polygon area: {polygon.area}")
+            print(f"Is polygon valid? {polygon.is_valid}")
+            return None
+        elif attempts > (collected_samples + 1) * max_attempts_factor * 2 and collected_samples > 0 : # if it gets too slow
+            print(f"Warning: Sampling is very inefficient. Collected {collected_samples} after {attempts} attempts.")
+            print(f"This might happen if the polygon is very small relative to its bounding box.")
+            print(f"Proceeding with {collected_samples} samples.")
+            break
+
+
+        # Generate a random point within the bounding box
+        rand_x = random.uniform(minx, maxx)
+        rand_y = random.uniform(miny, maxy)
+        point = Point(rand_x, rand_y)
+
+        # Check if the point is inside the polygon
+        if polygon.contains(point):
+            f_value = func_f(rand_x, rand_y)
+            sum_f_values += f_value
+            collected_samples += 1
+            
+            accepted_points_x.append(rand_x) # For visualization
+            accepted_points_y.append(rand_y) # For visualization
+
+    if collected_samples == 0: # Should be caught by attempts check, but as a safeguard
+        print("Error: No samples collected. This shouldn't happen if attempts check worked.")
+        return None
+
+    estimated_average_f = sum_f_values / collected_samples
+
+    # ---- Optional: Visualization ----
+    # Comment this section out if you don't have matplotlib or don't need visuals
+    if accepted_points_x: # Check if any points were accepted
+        try:
+            fig, ax = plt.subplots()
+            poly_patch = plt.Polygon(list(polygon.exterior.coords), edgecolor='blue', facecolor='lightblue', alpha=0.5)
+            ax.add_patch(poly_patch)
+            
+            # Plot interior holes if any
+            for interior in polygon.interiors:
+                hole_patch = plt.Polygon(list(interior.coords), edgecolor='black', facecolor='white', alpha=0.7)
+                ax.add_patch(hole_patch)
+
+            ax.scatter(accepted_points_x, accepted_points_y, color='red', s=5, label=f'{collected_samples} samples')
+            
+            # Set plot limits to be slightly larger than polygon bounds
+            ax.set_xlim(minx - (maxx-minx)*0.1, maxx + (maxx-minx)*0.1)
+            ax.set_ylim(miny - (maxy-miny)*0.1, maxy + (maxy-miny)*0.1)
+            ax.set_aspect('equal', adjustable='box')
+            ax.set_title(f'Monte Carlo Sampling (N={collected_samples})')
+            ax.legend()
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.grid(True)
+            plt.show()
+        except Exception as e:
+            print(f"Could not plot: {e}")
+    # ---- End Optional: Visualization ----
+
+    return estimated_average_f
+
+#%%
+# 2. Define your function f(x, y)
+def my_function_f(x, y):
+    # Example 1: f(x,y) = x + y
+    # return x + y
+
+    # Example 2: f(x,y) = x^2 + y^2 (distance squared from origin)
+    # return x**2 + y**2
+    
+    # Example 3: f(x,y) = 1 (constant function)
+    # The average should be 1. Useful for testing.
+    # return 1.0
+
+    # Example 4: A Gaussian centered at (cx, cy)
+    cx, cy = 5, 5 # Center of the Gaussian
+    sigma = 2.0
+    return (1 / (2 * 3.14159 * sigma**2)) * \
+            2.71828**(-((x - cx)**2 + (y - cy)**2) / (2 * sigma**2))
+
+#%%
+# --- Example Usage ---
+if __name__ == "__main__":
+    # 1. Define your Shapely Polygon
+    # Example 1: A simple square
+    # polygon = Polygon([(0, 0), (0, 2), (2, 2), (2, 0)])
+
+    # # Example 2: A more complex polygon (a square with a hole)
+    # outer_coords = [(0, 0), (0, 10), (10, 10), (10, 0)]
+    # inner_coords = [(2, 2), (2, 4), (4, 4), (4, 2)] # A hole
+    # polygon_with_hole = Polygon(outer_coords, [inner_coords])
+
+    # # Example 3: A circle-like polygon (approximation)
+    # from shapely.geometry import Point as ShapelyPoint
+    # circle_center = ShapelyPoint(5, 5)
+    # circle_polygon = circle_center.buffer(3) # Creates a circular polygon with radius 3
+
+    # Example 4: A simple square
+    polygon = Polygon([(0, 0), (0, 3), (2, 4), (3, 0)])
+
+    # Choose which polygon to use for the demo
+    current_polygon = polygon
+    # current_polygon = circle_polygon
+    # current_polygon = Polygon([(0,0), (1,1), (0,1)]) # A triangle
+
+    print(f"Polygon Area: {current_polygon.area}")
+    print(f"Polygon Bounds: {current_polygon.bounds}")
+
+    # 3. Set the number of samples
+    num_monte_carlo_samples = 10000
+
+    # 4. Perform Monte Carlo sampling
+    estimated_value = monte_carlo_sample_f_on_polygon(
+        current_polygon,
+        my_function_f,
+        num_monte_carlo_samples
+    )
+
+    if estimated_value is not None:
+        print(f"\nEstimated average value of f(x,y) over the polygon: {estimated_value:.6f}")
+
+        # For f(x,y) = 1, the integral of f(x,y) dA is Area(polygon).
+        # The average value is Integral(f dA) / Area = Area / Area = 1.
+        # So, if my_function_f returns 1, estimated_value should be close to 1.
+
+        # For f(x,y) = x (over a square [0,L]x[0,L])
+        # Integral = L^3/2. Average = (L^3/2) / L^2 = L/2.
+        # If polygon is [(0,0), (0,2), (2,2), (2,0)] and f(x,y)=x, average should be 1.
+        # Test:
+        # def f_x(x,y): return x
+        # test_poly = Polygon([(0,0), (0,2), (2,2), (2,0)])
+        # est_x = monte_carlo_sample_f_on_polygon(test_poly, f_x, 10000)
+        # print(f"Test for f(x)=x on [0,2]x[0,2]: {est_x} (expected ~1.0)")
+
+    else:
+        print("Monte Carlo estimation failed.")
+
+#endregion -----------------------------------------------------------------------------------------
+#region Copy file
+
+#%%
+import shutil
+
+#%%
+file_name = '20201016_T392'
+file_extension = 'dss'
+folder_from = 'D:\FEMA Innovations\SO3.1\Data\Duwamish\Duwamish-v01-20231128\dss'
+folder_to = 'D:\Temp\RAS\ROGCheck'
+
+#%%
+shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\{file_name}.{file_extension}')
+shutil.copy(rf'{folder_from}\{file_name}.{file_extension}', rf'{folder_to}\rog.{file_extension}')
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# sns.pairplot(df_storm_stats.drop(columns=['x', 'y']))
+# plt.show()
+
+#endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%% Select Watershed
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
+
+os.chdir(folder_watershed)
+cwd = pathlib.Path.cwd()
+
+sp_watershed, sp_domain, df_storms = read_catalog(folder_watershed)
+
+v_watershed_stats = get_sp_stats(sp_watershed)
+v_domain_stats = get_sp_stats(sp_domain)
+
+#%%
+n_sim_mc = 100
+df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
+
+df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
+
+# df_depths_mc_0b = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
+
+# df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
+
+#%%
+(pd.concat([df_depths_mc_0[['depth']].rename(columns={'depth': 'depth_mean'}), df_depths_mc_0b[['depth']].rename(columns={'depth': 'depth_sum'})], axis=1)
+    .assign(diff = lambda _: _.depth_mean - _.depth_sum)
+)
 
 #endregion -----------------------------------------------------------------------------------------

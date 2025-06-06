@@ -15,7 +15,7 @@ import rasterstats
 #region Functions
 
 #%% rasterio
-def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodataframe) -> float:
+def _get_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodataframe) -> float:
     try:
         # 1. Read the GeoJSON polygon
         if gdf.empty:
@@ -78,7 +78,7 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
             # 5. Sum the unmasked pixel values
             # If using np.nan for masking, np.nansum will sum non-NaN values.
             if src.dtypes[0] in ['float32', 'float64'] or raster_nodata is None and np.isnan(masked_data).any():
-                total_sum = np.nansum(masked_data)
+                total = np.nansum(masked_data)
             else:
                 # If integer type and a specific nodata value was used for masking
                 # (or if rasterio used 0 by default for masking an integer array without nodata)
@@ -114,17 +114,16 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
                 if raster_nodata is not None and not np.isnan(raster_nodata):
                      valid_pixels_mask &= (masked_data != raster_nodata)
 
-                total_sum = np.sum(masked_data[valid_pixels_mask])
+                total = np.sum(masked_data[valid_pixels_mask])
 
-
-            return float(total_sum)
+            return float(total)
 
     except FileNotFoundError:
         print(f"Error: Raster or GeoJSON file not found.")
-        return np.nan
+        return np.nan, np.nan
     except rio.errors.RasterioIOError as e:
         print(f"Rasterio Error: {e}")
-        return np.nan
+        return np.nan, np.nan
     # except gpd.io.file.DriverError as e:
     #     print(f"GeoPandas Driver Error (check GeoJSON format/path): {e}")
     #     return np.nan
@@ -135,7 +134,7 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
         return np.nan
 
 #%% rasterstats
-def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodataframe) -> float:
+def _get_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodataframe) -> float:
     try:
         if gdf.empty:
             return np.nan
@@ -161,7 +160,7 @@ def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodata
         stats_results = rasterstats.zonal_stats(
             vectors=gdf, # Can be GeoDataFrame, path to shapefile, or GeoJSON features
             raster=raster_path,
-            stats=["sum"],         # We only need the sum
+            stats=["sum"],           # We only need the sum
             # nodata=None,           # Let rasterstats infer from raster or handle NaNs
             #                        # Or specify: e.g., if raster has -9999 as nodata
             # all_touched=False,
@@ -185,7 +184,7 @@ def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodata
         return np.nan
 
 #%% xarray
-def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe) -> float:
+def _get_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe) -> float:
     try:
         if gdf.empty:
             return np.nan
@@ -198,7 +197,7 @@ def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe
         if 'band' in rds.dims and rds.sizes['band'] > 1:
             rds = rds.sel(band=1) # Select first band
         elif 'band' in rds.dims:
-             rds = rds.squeeze('band', drop=True)
+            rds = rds.squeeze('band', drop=True)
 
         # 3. Ensure CRS match
         if gdf.crs is None and rds.rio.crs is not None:
@@ -224,9 +223,18 @@ def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe
 
         # 5. Sum the values
         # np.nansum is appropriate as masked values and original NoData are NaN
-        total_sum = np.nansum(clipped_da.data) # .data gets the underlying numpy array
+        total = np.nansum(clipped_da.data) # .data gets the underlying numpy array
+        # total = np.nanmean(clipped_da.data) # .data gets the underlying numpy array
 
-        return float(total_sum)
+        # print (total, total1)
+
+        return float(total)
+    
+        # v_depth = clipped_da.values.flatten()
+        # v_depth = v_depth[~np.isnan(v_depth)]
+        # len(v_depth)
+
+        # gdf.area.iloc[0]/(4e3)**2
 
     except Exception as e:
         # print(f"Error using xarray/rioxarray: {e}")
@@ -235,10 +243,12 @@ def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe
         return np.nan
 
 #%%
-def sum_raster_values_in_polygon(
+def get_raster_values_in_polygon(
     raster_path: str,
     gdf: gpd.GeoDataFrame,
-    backend: Literal['rasterio', 'rasterstats' 'xarray']='xarray'
+    backend: Literal['rasterio', 'rasterstats' 'xarray']='xarray',
+    stat: Literal['sum', 'mean']='mean',
+    multiplier: float = 1/25.4, # to convert to inch
 ) -> float:
     '''Calculates the sum of raster pixel values that intersect a single polygon in a geodataframe.
     Args:
@@ -251,12 +261,17 @@ def sum_raster_values_in_polygon(
     '''
     match backend:
         case 'rasterio':
-            return _sum_raster_values_in_polygon_rasterio(raster_path, gdf)
+            sum_values = _get_raster_values_in_polygon_rasterio(raster_path, gdf)
         case 'rasterstats':
-            return _sum_raster_values_in_polygon_rasterstats(raster_path, gdf)
+            sum_values = _get_raster_values_in_polygon_rasterstats(raster_path, gdf)
         case 'xarray':
-            return _sum_raster_values_in_polygon_xarray(raster_path, gdf)
-        case _:
-            pass # Deal with this (throw error? use xarray? return null values?)
+            sum_values = _get_raster_values_in_polygon_xarray(raster_path, gdf)
+        # case _:
+        #     pass # Deal with this (throw error? use xarray? return null values?)
+
+    if stat == 'sum':
+        return sum_values * multiplier
+    else:
+        return sum_values * multiplier / (gdf.area.iloc[0]/(4e3)**2) # Assuming gdf.area is in m^2, this divides by number of cells
 
 #endregion -----------------------------------------------------------------------------------------

@@ -9,12 +9,11 @@ from scipy.interpolate import interp1d
 #region Functions
 
 #%% Create probability dataframe from depths (sorted) and weights (sorted)
-def get_return_period_langbein(depths: list|np.ndarray|pd.Series, probs: list|np.ndarray|pd.Series, lambda_rate=10) -> pd.DataFrame:
-    '''Generate frequency distribution curve datafra.e
+def get_return_period_langbein(df_depths: pd.DataFrame, lambda_rate=10) -> pd.DataFrame:
+    '''Generate frequency distribution curve dataframe
 
     Args:
-        depths (list | np.ndarray | pd.Series): Vector of depths.
-        probs (list | np.ndarray | pd.Series): Vector of probabilities.
+        df_depths (pd.DataFrame): Dataframe of depths and probabilities.
         lambda_rate (float): Rate of flood events (=m/N where m is the number of events in the partial duration series and N is the number of years). Defaults to 10.
 
     Returns:
@@ -22,8 +21,8 @@ def get_return_period_langbein(depths: list|np.ndarray|pd.Series, probs: list|np
     '''
     # Table of depths and probabilities
     df_prob = pd.DataFrame(dict(
-        depth = depths,
-        prob = probs
+        depth = df_depths.depth,
+        prob = df_depths.prob,
     ))
 
     # Exceedence probability

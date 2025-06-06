@@ -16,7 +16,7 @@ import geopandas as gpd
 #region Modules
 
 #%%
-from src.utils_spatial.zonal_stats import sum_raster_values_in_polygon
+from src.utils_spatial.zonal_stats import get_raster_values_in_polygon
 from src.sst.storm_center_shifter import shift_gdf
 
 #endregion -----------------------------------------------------------------------------------------
@@ -26,7 +26,7 @@ from src.sst.storm_center_shifter import shift_gdf
 def _shift_and_compute_depth_single(sp_watershed: gpd.GeoDataFrame, path_storm: str, shift_x: float, shift_y: float) -> float:
     #TODO implement shift method
     sp_watershed_shifted = shift_gdf(sp_watershed, shift_x, shift_y)
-    _depth = sum_raster_values_in_polygon(path_storm, sp_watershed_shifted)
+    _depth = get_raster_values_in_polygon(path_storm, sp_watershed_shifted)
 
     return _depth
 

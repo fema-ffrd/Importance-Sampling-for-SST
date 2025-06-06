@@ -103,21 +103,25 @@ def get_raster_stats(path_raster: pathlib.Path, sp_domain: gpd.GeoDataFrame = No
 
 #%%
 #TODO
-def get_storm_stats(path_catalogue: pathlib.Path) -> pd.DataFrame:
+def get_storm_stats(folder_watershed: str) -> pd.DataFrame:
+    path_watershed = pathlib.Path(folder_watershed)
+
     # Read watershed, domain, and storm catalogue
-    sp_watershed, sp_domain, df_storms = read_catalog(path_catalogue/'data')
+    sp_watershed, sp_domain, df_storms = read_catalog(path_watershed/'data')
 
     # Get storm stats
     tif_files = df_storms.path
     pbar = tqdm(total=len(tif_files))
     d_stats = []
     for tif_file in tif_files:
-        analysis_result = get_raster_stats(path_catalogue/tif_file, sp_domain)
+        analysis_result = get_raster_stats(path_watershed/tif_file, sp_domain)
         d_stats.append(analysis_result)
         pbar.update()
     _df_raster_stats = pd.DataFrame(d_stats)
     
     df_raster_stats = (df_storms.merge(_df_raster_stats, on='name', how='left'))
+
+    df_raster_stats.to_pickle(path_watershed/'pickle'/'df_storm_stats.pkl')
 
     return df_raster_stats
 

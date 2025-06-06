@@ -35,7 +35,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #region Set Watershed
 
 #%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
 
 #endregion -----------------------------------------------------------------------------------------
 #region Set Working Folder
@@ -45,10 +45,10 @@ os.chdir(rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\
 cwd = pathlib.Path.cwd()
 
 #endregion -----------------------------------------------------------------------------------------
-#region Read Data
+#region Read Watershed and Storm Data
 
 #%% Read watershed, domain, and storm catalogue
-sp_watershed, sp_domain, df_storms = read_catalog(cwd/'data')
+sp_watershed, sp_domain, df_storms = read_catalog(cwd)
 
 #%% Get polygon info (bounds, centroids, ranges)
 v_watershed_stats = get_sp_stats(sp_watershed)
@@ -69,7 +69,7 @@ df_dist_params = pd.DataFrame(dict(
     dist = ['Truncated Normal + Uniform'],
     acronym = ['tnXu'],
     param_1_name = ['std'],
-    param_1 = ['0.75'], # 1 for Duwamish, 0.5 for Kanahwa, 0.75 for Trinity
+    param_1 = ['1'], # 1 for Duwamish, 0.5 for Kanahwa, 0.75 for Trinity
     param_2_name = ['w1'],
     param_2 = ['0.1'],
 ))
@@ -202,9 +202,9 @@ df_depths_is = pd.read_pickle(cwd/'pickle'/f'df_depths_is_n_{n_sim_is}_{row.name
 #region Get Table of Frequency Curves
 
 #%% 
-df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0.depth, df_depths_mc_0.prob)
-df_freq_curve_mc = get_return_period_langbein(df_depths_mc.depth, df_depths_mc.prob)
-df_freq_curve_is = get_return_period_langbein(df_depths_is.depth, df_depths_is.prob)
+df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0)
+df_freq_curve_mc = get_return_period_langbein(df_depths_mc)
+df_freq_curve_is = get_return_period_langbein(df_depths_is)
 
 #endregion -----------------------------------------------------------------------------------------
 #region Evaluation
@@ -232,95 +232,9 @@ g.show()
 # g.save(cwd/'plots'/f'Freq n_{n_sim_is} {row.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
-#region Uncertainty Analysis
+#region Read Storn Info
 
 #%%
-# df_depths_mc_u = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_u_n_{n_sim_is}.pkl')
-# df_depths_is_u = pd.read_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-# df_freq_curve_mc_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
-# df_freq_curve_is_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-
-#%%
-for n_sim_is in [10_000, 100_000]:
-    df_depths_mc_u = pd.DataFrame()
-    df_depths_is_u = pd.DataFrame()
-    df_freq_curve_mc_u = pd.DataFrame()
-    df_freq_curve_is_u = pd.DataFrame()
-    for i in range(int(1_000_000/n_sim_is)):
-        # Monte Carlo
-        _df_storm_sample_mc = sample_storms(df_storms, v_domain_stats, dist_x=None, dist_y=None, num_simulations=n_sim_is)
-        _df_depths_mc = shift_and_compute_depth(_df_storm_sample_mc, sp_watershed)
-
-        # Importance sampling
-        _df_storm_sample_is = sample_storms(df_storms, v_domain_stats, dist_x, dist_y, num_simulations=n_sim_is)
-        _df_depths_is = shift_and_compute_depth(_df_storm_sample_is, sp_watershed)
-
-        # Get Table of Frequency Curves
-        _df_freq_curve_mc = get_return_period_langbein(_df_depths_mc.depth, _df_depths_mc.prob)
-        _df_freq_curve_is = get_return_period_langbein(_df_depths_is.depth, _df_depths_is.prob)
-
-        # Record results
-        df_depths_mc_u = pd.concat([df_depths_mc_u, _df_depths_mc.assign(iter = i)])
-        df_depths_is_u = pd.concat([df_depths_is_u, _df_depths_is.assign(iter = i)])
-        df_freq_curve_mc_u = pd.concat([df_freq_curve_mc_u, _df_freq_curve_mc.assign(iter = i)])
-        df_freq_curve_is_u = pd.concat([df_freq_curve_is_u, _df_freq_curve_is.assign(iter = i)])
-
-    df_depths_mc_u.to_pickle(cwd/'pickle'/f'df_depths_mc_u_n_{n_sim_is}.pkl')
-    df_depths_is_u.to_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-    df_freq_curve_mc_u.to_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
-    df_freq_curve_is_u.to_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-
-#%%
-# # g = plot_freq_curve([df_freq_curve_mc_u.loc[lambda _: _.iter.isin([0])], df_freq_curve_is_u.loc[lambda _: _.iter.isin([0])]], [f'MC ({n_sim_is/1000}k)', f'IS ({n_sim_is/1000}k)'])
-# g = plot_freq_curve([df_freq_curve_mc_0, df_freq_curve_mc_u, df_freq_curve_is_u], [f'MC ({n_sim_mc/1000}k)', f'MC ({n_sim_is/1000}k)', f'IS ({n_sim_is/1000}k)'])
-# # g.show()
-# g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{i} {row.name_file}.png', width=10, height=7)
-
-#endregion -----------------------------------------------------------------------------------------
-#region 
-
-#%%
-df_freq_curve_mc_u: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_mc_u_n_{n_sim_is}.pkl')
-df_freq_curve_is_u: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
-df_freq_curve_mc_0 = get_return_period_langbein(df_depths_mc_0.depth, df_depths_mc_0.prob)
-
-#%%
-for n_sim_is in [10_000, 100_000]:
-    #%%
-    df_depths_is_u = pd.read_pickle(cwd/'pickle'/f'df_depths_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-    df_freq_curve_is_u = pd.read_pickle(cwd/'pickle'/f'df_freq_curve_is_u_n_{n_sim_is}_{row.name_file}.pkl')
-
-    #%%
-    df_aep_mc, df_aep_summary_mc = get_aep_uncertainty(df_freq_curve_mc_u)
-    df_aep_is, df_aep_summary_is = get_aep_uncertainty(df_freq_curve_is_u)
-    df_aep_mc_0, df_aep_summary_mc_0 = get_aep_uncertainty(df_freq_curve_mc_0.assign(iter = 0))
-
-    #%%
-    g = \
-    (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth', group = 'type', linetype='type'))
-        + pn.geom_line(data = df_aep_summary_mc, mapping = pn.aes(color='"MC"'))
-        + pn.geom_line(data = df_aep_summary_is, mapping = pn.aes(color='"IS"'))
-        + pn.geom_line(data = df_aep_summary_mc_0, mapping = pn.aes(color='"Truth"'))
-        # + pn.geom_line(data = df_aep_mc_0, mapping = pn.aes(color='"Truth"'))
-        + pn.scale_x_log10()
-        + pn.labs(
-            # x = 'Return Period',
-            # x = 'Exceedence Probability',
-            x = 'Return Period',
-            y = 'Rainfall Depth',
-            title = f'Uncertainty (N={n_sim_is}, iter={int(1_000_000/n_sim_is)})'
-        )
-        + pn.theme_bw()
-        + pn.theme(
-            title = pn.element_text(hjust = 0.5),
-            # legend_position = 'bottom',
-            legend_title = pn.element_blank(),
-            legend_key = pn.element_blank(),
-            axis_title_y = pn.element_text(ha = 'left'),
-        )
-    )
-    g.show()
-    # g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{int(1_000_000/n_sim_is)} {row.name_file}.png', width=10, height=7)
+df_storm_stats = pd.read_pickle(cwd/'pickle'/'df_storm_stats.pkl')
 
 #endregion -----------------------------------------------------------------------------------------

@@ -22,15 +22,18 @@ from src.utils_spatial.crs_converter import match_crs_to_raster
 #region Functions
 
 #%%
-def read_catalog(path_data: pathlib.Path) -> tuple:
+def read_catalog(folder_watershed: str) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame]:
     '''Read watershed, domain, and storm catalogue. The watershed and domain crs are matched to the crs of the storm catalogue.
 
     Args:
-        path_data (pathlib.Path): Path of folder with the watershed GIS file, domain GIS file, and the storm catalogue pickle file.
+        folder_watershed (str): Watershed folder.
 
     Returns:
         tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame]: Tuple of watershed geodataframe, domain geodataframe, and storm catalogue dataframe.
     '''
+    path_watershed = pathlib.Path(folder_watershed)
+    path_data = path_watershed/'data'
+
     # Set paths
     path_storm = path_data/'storm_catalog'
     path_geojson = path_data/'geojson'
