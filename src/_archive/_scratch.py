@@ -3302,9 +3302,9 @@ df_storm_sample_mc_0 = sample_storms(df_storms, v_domain_stats, dist_x=None, dis
 
 df_depths_mc_0 = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
-# df_depths_mc_0b = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
+df_depths_mc_0b = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
-# df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
+df_depths_mc_0c = shift_and_compute_depth(df_storm_sample_mc_0, sp_watershed)
 
 #%%
 (pd.concat([df_depths_mc_0[['depth']].rename(columns={'depth': 'depth_mean'}), df_depths_mc_0b[['depth']].rename(columns={'depth': 'depth_sum'})], axis=1)

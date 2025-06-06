@@ -34,7 +34,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #region Set Watershed
 
 #%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
 folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
 #endregion -----------------------------------------------------------------------------------------
@@ -60,9 +60,6 @@ v_domain_stats = get_sp_stats(sp_domain)
 #%% Set number of simulations
 n_sim_mc = 1_000_000
 n_sim_is = 100_000
-
-n_sim_mc = 10_000
-n_sim_is = 1_000
 
 #endregion -----------------------------------------------------------------------------------------
 #region Set Importance Sampling Parameters

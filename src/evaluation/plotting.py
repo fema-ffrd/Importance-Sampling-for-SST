@@ -3,6 +3,7 @@
 #%%
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 import plotnine as pn
@@ -17,6 +18,43 @@ from src.utils_spatial.spatial_stats import get_sp_stats
 #region Functions
 
 #%%
+def downscale_df_xy(df, var_x, var_y, x_res = 0.001, y_res = 0.001) -> pd.DataFrame:
+    '''Downsamples data for plotting by keeping only points that are visually distinct based on the resolution of the plot.
+
+    Args:
+        df: DataFrame to downscale.
+        var_x: Name of the x-column.
+        var_y: Name of the y-column.
+        x_res: The minimum proportion of maximum horizontal distance to be considered a new point.
+        y_res: The minimum proportion of maximum vertical distance to be considered a new point.
+
+    Returns:
+        pd.DataFrame: Downscaled dataframe.
+    '''
+    # Set resolution
+    x_range = df[var_x].max() - df[var_x].min()
+    y_range = df[var_y].max() - df[var_y].min()
+    
+    x_res = x_range * x_res 
+    y_res = y_range * y_res
+    
+    last_x, last_y = -np.inf, -np.inf
+    keep_indices = []
+    
+    # Get numpy arrays for performance
+    x_vals = df[var_x].values
+    y_vals = df[var_y].values
+    
+    for i in range(len(df)):
+        # Check if the point is far enough from the last kept point
+        if abs(x_vals[i] - last_x) > x_res or abs(y_vals[i] - last_y) > y_res:
+            keep_indices.append(i)
+            last_x, last_y = x_vals[i], y_vals[i]
+            
+    return df.iloc[keep_indices]
+
+#%%
+#TODO
 def plot_sample_centers(df_storm_sample, sp_watershed, sp_domain, v_domain_stats=None):
     if v_domain_stats is None:
         v_domain_stats = get_sp_stats(sp_domain)
@@ -50,6 +88,7 @@ def plot_sample_centers(df_storm_sample, sp_watershed, sp_domain, v_domain_stats
     return g
 
 #%%
+#TODO
 def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
     if v_watershed_stats is None:
         v_watershed_stats = get_sp_stats(sp_watershed)
@@ -107,11 +146,17 @@ def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
     return g_x, g_y
 
 #%%
-def plot_freq_curve(l_df_depths, l_names, l_colors=None, var_x: Literal['return_period', 'prob_exceed']='return_period'):
+#TODO
+def plot_freq_curve(l_df_prob, l_names, l_colors=None, var_x: Literal['return_period', 'prob_exceed']='return_period', downscale=True, downscale_prop=0.001):
+    if downscale:
+        for i in range(len(l_df_prob)):
+            l_df_prob[i] = downscale_df_xy(l_df_prob[i], var_x, 'depth', x_res=downscale_prop, y_res=downscale_prop)
+        
     g = pn.ggplot(mapping=pn.aes(x=var_x, y='depth'))
 
-    for df_depths, name in zip(l_df_depths, l_names):
-        g = g + pn.geom_point(data=df_depths, mapping=pn.aes(color=f'"{name}"'), size=0.1)
+    for df_prob, name in zip(l_df_prob, l_names):
+        print (len(df_prob))
+        g = g + pn.geom_point(data=df_prob, mapping=pn.aes(color=f'"{name}"'), size=0.1)
     
     g = \
     (g
