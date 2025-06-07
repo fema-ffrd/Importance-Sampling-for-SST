@@ -12,15 +12,15 @@ import geopandas as gpd
 #%%
 from src.sst.storm_sampler import sample_storms
 from src.sst.sst_depth_computer import shift_and_compute_depth
-from src.stats.aep import get_return_period_langbein, get_aep_depths
+from src.stats.aep import get_return_period_langbein, get_aep_depths, get_aep_uncertainty
 
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
 
 #%%
 #TODO
-def simulate_sst(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFrame, df_storms: pd.DataFrame, dist_x=None, dist_y=None, num_simulations=10000, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    df_storm_sample = sample_storms(df_storms, sp_domain, dist_x, dist_y, num_simulations)
+def simulate_sst(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFrame, df_storms: pd.DataFrame, dist_x=None, dist_y=None, dist_xy=None, num_simulations=10000, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    df_storm_sample = sample_storms(df_storms, sp_domain, dist_x, dist_y, dist_xy, num_simulations=num_simulations)
     df_depths = shift_and_compute_depth(df_storm_sample, sp_watershed)
     df_prob = get_return_period_langbein(df_depths)
     df_aep = get_aep_depths(df_prob)
@@ -29,12 +29,12 @@ def simulate_sst(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFrame, df
 
 #%%
 #TODO
-def simulate_sst_iter(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFrame, df_storms: pd.DataFrame, dist_x=None, dist_y=None, num_simulations=10000, num_iter=100, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def simulate_sst_iter(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFrame, df_storms: pd.DataFrame, dist_x=None, dist_y=None, dist_xy=None, num_simulations=10000, num_iter=100, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df_depths_iter = pd.DataFrame()
     df_prob_iter = pd.DataFrame()
     df_aep_iter = pd.DataFrame()
     for i in range(num_iter):
-        df_storm_sample = sample_storms(df_storms, sp_domain, dist_x, dist_y, num_simulations)
+        df_storm_sample = sample_storms(df_storms, sp_domain, dist_x, dist_y, dist_xy, num_simulations=num_simulations)
         df_depths = shift_and_compute_depth(df_storm_sample, sp_watershed).assign(iter = i)
         df_prob = get_return_period_langbein(df_depths).assign(iter = i)
         df_aep = get_aep_depths(df_prob).assign(iter = i)
@@ -43,18 +43,7 @@ def simulate_sst_iter(sp_watershed: gpd.GeoDataFrame, sp_domain: gpd.GeoDataFram
         df_prob_iter = pd.concat([df_prob_iter, df_prob])
         df_aep_iter = pd.concat([df_aep_iter, df_aep])
 
-    df_aep_summary = \
-    (df_aep_iter
-        .groupby('return_period')
-        .agg(
-            mean = ('depth', 'mean'),
-            median = ('depth', 'median'),
-            min = ('depth', 'min'),
-            max = ('depth', 'max'),
-        )
-        .reset_index()
-        .melt(id_vars='return_period', var_name='type_val', value_name='depth')
-    )
+    df_aep_summary = get_aep_uncertainty(df_aep_iter)
 
     return df_depths_iter, df_prob_iter, df_aep_iter, df_aep_summary
 

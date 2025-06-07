@@ -1,34 +1,16 @@
-#region Functions
+#region Imports
 
 #%%
 import numpy as np
 
 #endregion -----------------------------------------------------------------------------------------
-#region Functions
+#region Modules
 
-#%% Function to pass parameters to truncnorm
-def truncnorm_params(mean: float, std_dev: float, lower: float, upper: float) -> dict:
-    '''
-    Calculate the parameters for a truncated normal distribution.
+#%%
+from src.stats.distributions import RotatedNormal
 
-    Args:
-        mean (float): The mean of the normal distribution.
-        std_dev (float): The standard deviation of the normal distribution.
-        lower (float): The lower bound of the truncated distribution.
-        upper (float): The upper bound of the truncated distribution.
-
-    Returns:
-        dict: A dictionary containing the parameters 'a', 'b', 'loc', and 'scale' for the truncated normal distribution.
-
-    '''
-    d = dict(
-        a = (lower - mean) / std_dev,
-        b = (upper - mean) / std_dev,
-        loc = mean,
-        scale = std_dev
-    )
-
-    return d
+#endregion -----------------------------------------------------------------------------------------
+#region Distribution Helpers
 
 #%% Function to fit rotated normal to shapely polygon
 def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
@@ -86,14 +68,7 @@ def fit_rotated_normal_to_polygon(polygon, coverage_factor=0.5):
     # print(f"Stds (scaled): {stds}")
     # print("--------------------")
 
-    # 5. Create the dictionary with RotatedNormal distribution parameters
-    d = dict(
-        mean = centroid,
-        stds = stds,
-        angle_degrees = float(angle_deg)
-    )
-    
-    return d
-    # return RotatedNormal(mean=centroid, stds=stds, angle_degrees=angle_deg)
+    # 5. Create the RotatedNormal distribution with these parameters
+    return RotatedNormal(mean=centroid, stds=stds, angle_degrees=angle_deg)
 
 #endregion -----------------------------------------------------------------------------------------

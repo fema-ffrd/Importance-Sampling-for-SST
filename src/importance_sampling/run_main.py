@@ -7,10 +7,6 @@ import pathlib
 import numpy as np
 import pandas as pd
 
-import plotnine as pn
-
-from scipy import stats
-
 import platform
 
 #%%
@@ -23,9 +19,10 @@ if platform.system() == 'Windows':
 #%%
 from src.preprocessing.catalog_reader import read_catalog
 from src.preprocessing.param_scheme_reader import get_dist_from_scheme
+from src.sst.storm_sampler import sample_storms
 from src.utils_spatial.spatial_stats import get_sp_stats
-from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution
-from src.stats.distribution_helpers import truncnorm_params
+from src.stats.distribution_helpers import truncnorm_params, fit_rotated_normal_to_polygon
+from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistribution, MixtureDistribution, RotatedNormal
 from src.sst.sst_simulation import simulate_sst
 from src.evaluation.sampling_eval import print_sim_stats
 from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_xy_vs_depth_2d, plot_freq_curve
@@ -63,6 +60,24 @@ n_sim_mc = 1_000_000
 n_sim_is = 100_000
 
 #endregion -----------------------------------------------------------------------------------------
+#region Run Simulations - Ground Truth
+
+#%% Ground truth (Run once)
+df_depths_mc_0, df_prob_mc_0, df_aep_mc_0 = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
+df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_0.pkl')
+df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_0.pkl')
+df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_0.pkl')
+
+#endregion -----------------------------------------------------------------------------------------
+#region Run Simulations - Monte Carlo for Comparison
+
+#%% Run Monte Carlo for comparison
+df_depths_mc, df_prob_mc, df_aep_mc = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_is)
+df_depths_mc.to_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_is}.pkl')
+df_prob_mc.to_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_is}.pkl')
+df_aep_mc.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_is}.pkl')
+
+#endregion -----------------------------------------------------------------------------------------
 #region Set Importance Sampling Parameters
 
 #%%
@@ -95,22 +110,30 @@ row_dist_params = df_dist_params.iloc[0]
 dist_x, dist_y = get_dist_from_scheme(row_dist_params, v_watershed_stats, v_domain_stats) 
 
 #endregion -----------------------------------------------------------------------------------------
-#region Run Simulations - Ground Truth
+#region Generate Samples and Evaluate
 
-#%% Ground truth (Run once)
-df_depths_mc_0, df_prob_mc_0, df_aep_mc_0 = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
-df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_0.pkl')
-df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_0.pkl')
-df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_0.pkl')
+#%% Plot depth vs coordinates (for full MC)
+g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
+g_x.show()
+g_y.show()
+# g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
+# g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
-#endregion -----------------------------------------------------------------------------------------
-#region Run Simulations - Monte Carlo for Comparison
+#%% Plot depth vs coordinates 2D (for full MC)
+g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain)
+g_xy.show()
+# g_xy.save(cwd/'plots'/f'Check xy vs depth for primary Monte Carlo.png', width=10, height=7)
 
-#%% Run Monte Carlo for comparison
-df_depths_mc, df_prob_mc, df_aep_mc = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_is)
-df_depths_mc.to_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_is}.pkl')
-df_prob_mc.to_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_is}.pkl')
-df_aep_mc.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_is}.pkl')
+#%% Distribution of sampled points
+# df_storm_sample_is = sample_storms(df_storms, sp_domain, dist_x, dist_y, num_simulations=n_sim_is)
+_param_dist_xy = fit_rotated_normal_to_polygon(sp_domain.explode().geometry.iloc[0], coverage_factor=0.8)
+row = pd.Series(dict(name_file = 'RN_cf_08'))
+dist_xy = RotatedNormal(mean=[v_watershed_stats.x, v_watershed_stats.y], stds=_param_dist_xy.get('stds'), angle_degrees=_param_dist_xy.get('angle_degrees'))
+df_storm_sample_is = sample_storms(df_storms, sp_domain, dist_xy = dist_xy, num_simulations=n_sim_is)
+
+g = plot_sample_centers(df_storm_sample_is, sp_watershed, sp_domain, v_domain_stats)
+g.show()
+g.save(cwd/'plots'/f'XY n_{n_sim_is} {row.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
 #region Run Simulations - Importance Sampling
@@ -152,18 +175,6 @@ df_aep_is = pd.read_pickle(cwd/'pickle'/f'df_aep_is_n_{n_sim_is}_{row_dist_param
 print_sim_stats(df_depths_mc_0)
 print_sim_stats(df_depths_mc)
 print_sim_stats(df_depths_is)
-
-#%% Plot depth vs coordinates (for full MC)
-g_x, g_y = plot_xy_vs_depth(df_depths_mc_0, v_watershed_stats=v_watershed_stats)
-g_x.show()
-g_y.show()
-# g_x.save(cwd/'plots'/f'Check x vs depth for primary Monte Carlo.png', width=10, height=7)
-# g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
-
-#%% Plot depth vs coordinates 2D (for full MC)
-g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain)
-g_xy.show()
-# g_xy.save(cwd/'plots'/f'Check xy vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #%% Distribution of sampled points
 g = plot_sample_centers(df_depths_is, sp_watershed, sp_domain, v_domain_stats)

@@ -53,16 +53,10 @@ def get_aep_depths(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Seri
 
 #%%
 #TODO
-def get_aep_uncertainty(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    df_aep = pd.DataFrame()
-    for i in df_prob.iter.unique():
-        _df_aep = get_aep_depths(df_prob.loc[lambda _: _.iter == i], return_period)
-        _df_aep = _df_aep.assign(iter = i)
-        df_aep = pd.concat([df_aep, _df_aep])
-
-    df_aep_summary = \
-    (df_aep
-        .groupby('return_period')
+def get_aep_uncertainty(df_aep_iter: pd.DataFrame, group_col = 'return_period') -> pd.DataFrame:
+    df_aep_iter_summary = \
+    (df_aep_iter
+        .groupby(group_col)
         .agg(
             mean = ('depth', 'mean'),
             median = ('depth', 'median'),
@@ -70,39 +64,9 @@ def get_aep_uncertainty(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd
             max = ('depth', 'max'),
         )
         .reset_index()
-        .melt(id_vars='return_period', var_name='type', value_name='depth')
+        .melt(id_vars=group_col, var_name='type_val', value_name='depth')
     )
     
-    return df_aep, df_aep_summary
-
-#endregion -----------------------------------------------------------------------------------------
-#region Archive
-
-# #%% Create probability dataframe from depths (sorted) and weights (sorted)
-# def get_df_freq_curve(depths: list|np.ndarray|pd.Series, probs: list|np.ndarray|pd.Series) -> pd.DataFrame:
-#     '''Generate frequency distribution curve datafra.e
-
-#     Args:
-#         depths (list | np.ndarray | pd.Series): Vector of depths.
-#         probs (list | np.ndarray | pd.Series): Vector of probabilities.
-
-#     Returns:
-#         pd.DataFrame: Dataframe with inverse sorted depths and corresponding probabilities, exceedence probabilities, and return periods.
-#     '''
-#     # Table of depths and probabilities
-#     df_prob_mc = pd.DataFrame(dict(
-#         depth = depths,
-#         prob = probs
-#     ))
-
-#     # Exceedence probability
-#     df_prob_mc = \
-#     (df_prob_mc
-#         .sort_values('depth', ascending=False)
-#         .assign(prob_exceed = lambda _: _.prob.cumsum())
-#         .assign(return_period = lambda _: 1/_.prob_exceed)
-#     )
-
-#     return df_prob_mc
+    return df_aep_iter_summary
 
 #endregion -----------------------------------------------------------------------------------------
