@@ -56,9 +56,9 @@ if __name__ == '__main__':
     #%% Ground truth (Run once)
     # Generate samples, run simulations and get depths
     df_depths_mc_0, df_prob_mc_0, df_aep_mc_0 = simulate_sst(sp_watershed, sp_domain, df_storms, dist_x=None, dist_y=None, num_simulations=n_sim_mc)
-    df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_0.pkl')
-    df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_0.pkl')
-    df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_0.pkl')
+    df_depths_mc_0.to_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_mc}.pkl')
+    df_prob_mc_0.to_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_mc}.pkl')
+    df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
 
     #%% Read parameters
     df_dist_params = read_param_scheme(folder_watershed)
@@ -89,9 +89,9 @@ if __name__ == '__main__':
     # Read simulations results
 
     #%% Read Ground Truth results
-    df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_depths_mc_0.pkl')
-    df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_prob_mc_0.pkl')
-    df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/'df_aep_mc_0.pkl')
+    df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_mc}.pkl')
+    df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_mc}.pkl')
+    df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
     
     #%% Distribution of sampled points
     g = plot_sample_centers(df_depths_mc_0, sp_watershed, sp_domain, v_domain_stats)

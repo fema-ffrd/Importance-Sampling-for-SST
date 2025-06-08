@@ -6,6 +6,8 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from scipy import stats
+
 #endregion -----------------------------------------------------------------------------------------
 #region Functions
 
@@ -26,6 +28,29 @@ def get_aep_rmse(df_aep_1: pd.DataFrame, df_aep_2: pd.DataFrame) -> float:
     rmse = float(np.sqrt(mse))
 
     return rmse
+
+#%%
+#TODO
+def get_aep_rmse_iter(df_aep_mc_0: pd.DataFrame, df_aep_iter: pd.DataFrame) -> tuple[list, dict, str]:
+    v_rmse = []
+    for iter in df_aep_iter.iter.unique():
+        _rmse = get_aep_rmse(df_aep_mc_0, df_aep_iter[lambda _: _.iter == iter])
+    
+        v_rmse.append(_rmse)
+    
+    d_rmse = dict(
+        rmse_min = float(np.min(v_rmse)),
+        rmse_max = float(np.max(v_rmse)),
+        rmse_mean = float(np.mean(v_rmse)),
+        rmse_median = float(np.median(v_rmse)),
+        rmse_std = float(np.std(v_rmse, ddof=1)),
+        rmse_se = float(stats.sem(v_rmse)), # standard error
+        rmse_me = float(stats.t.ppf((1+0.95)/2, len(v_rmse)-1) * stats.sem(v_rmse)) # margin of error (95% CI)
+    )
+    
+    rmse_iter = f"{round(d_rmse.get('rmse_mean'), 3)} ± {round(d_rmse.get('rmse_me'), 3)}"
+    
+    return v_rmse, d_rmse, rmse_iter
 
 #%%
 #TODO
