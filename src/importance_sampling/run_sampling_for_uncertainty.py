@@ -33,8 +33,10 @@ from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistrib
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
+    # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_Concentrated\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
+    # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_SpreadOut\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder
     os.chdir(folder_watershed)
@@ -133,7 +135,7 @@ if __name__ == '__main__':
 
         g = \
         (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth'))
-            + pn.geom_line(data = df_aep_mc_0, mapping = pn.aes(color='"Truth"'))
+            + pn.geom_line(data = df_aep_mc_0, mapping = pn.aes(color='"Benchmark"'))
             + pn.geom_line(data = df_aep_summary_mc_iter.loc[lambda _: _.type_val.isin(['min', 'max', 'median'])].loc[lambda _: _.return_period <= n_sim_is/10], mapping = pn.aes(color='"MC"', group = 'type_val'), size = 0.75)
             + pn.geom_line(data = df_aep_summary_is_iter.loc[lambda _: _.type_val.isin(['min', 'max', 'median'])].loc[lambda _: _.return_period <= n_sim_is/10], mapping = pn.aes(color='"IS"', group = 'type_val'), size = 0.75)
             + pn.geom_line(data = df_aep_mc_iter, alpha=0.1, mapping = pn.aes(color='"MC"', group='iter'))
@@ -144,7 +146,8 @@ if __name__ == '__main__':
                 # x = 'Exceedence Probability',
                 x = 'Return Period',
                 y = 'Rainfall Depth (in)',
-                title = f'Uncertainty (N={n_sim_is}, iter={n_iter})',
+                title = f'Frequency Curve Comparison',
+                subtitle = f'(N={n_sim_is}, iter={n_iter})',
                 caption = f'RMSE (MC) = {rmse_mc[2]} in\nRMSE (IS) = {rmse_is_clipped[2]} in\nRMSE (IS full) = {rmse_is[2]} in'
             )
             + pn.theme_bw()
