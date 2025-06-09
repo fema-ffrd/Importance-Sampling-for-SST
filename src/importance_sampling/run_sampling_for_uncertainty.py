@@ -33,7 +33,7 @@ from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistrib
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     df_depths_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_n_{n_sim_mc}.pkl')
     df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_mc}.pkl')
     df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
-        
+
     #%% Plot uncertainty analysis results
     for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
         #%% Read uncertainty analysis results
@@ -129,12 +129,14 @@ if __name__ == '__main__':
         #%% Frequency analysis plot
         rmse_mc = get_aep_rmse_iter(df_aep_mc_0, df_aep_mc_iter)
         rmse_is = get_aep_rmse_iter(df_aep_mc_0, df_aep_is_iter)
-                
+
         g = \
-        (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth', group = 'type_val', linetype='type_val'))
+        (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth', group = 'type_val', color = 'type_val'))
             + pn.geom_line(data = df_aep_mc_0.assign(type_val = 'mean'), mapping = pn.aes(color='"Truth"'))
             + pn.geom_line(data = df_aep_summary_mc_iter, mapping = pn.aes(color='"MC"'))
             + pn.geom_line(data = df_aep_summary_is_iter, mapping = pn.aes(color='"IS"'))
+            + pn.geom_line(data = df_aep_mc_iter, alpha=0.1, mapping = pn.aes(color='"MC"', group='iter'))
+            + pn.geom_line(data = df_aep_is_iter, alpha=0.1, mapping = pn.aes(color='"IS"', group='iter'))
             + pn.scale_x_log10()
             + pn.labs(
                 # x = 'Return Period',
@@ -154,7 +156,7 @@ if __name__ == '__main__':
                 plot_caption = pn.element_text(hjust = 1)
             )
         )
-        # g.show()
-        g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+        g.show()
+        # g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
