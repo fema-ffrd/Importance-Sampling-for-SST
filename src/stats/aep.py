@@ -38,7 +38,7 @@ def get_return_period_langbein(df_depths: pd.DataFrame, lambda_rate=10) -> pd.Da
 
 #%%
 #TODO
-def get_aep_depths(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000, 5000], min_events_per_year = 10) -> pd.DataFrame:
+def get_aep_depths(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Series = [2, 2.5, 4, 5, 6.67, 10, 12.5, 20, 25, 33.33, 50, 75, 100, 150, 200, 250, 350, 500, 750, 1000, 2000, 5000], min_events_per_year = None) -> pd.DataFrame:
     v_depths =  interp1d(df_prob.return_period, df_prob.depth, bounds_error=False)(return_period)
 
     df_aep = pd.DataFrame(dict(return_period = return_period))
@@ -55,7 +55,7 @@ def get_aep_depths(df_prob: pd.DataFrame, return_period: list|np.ndarray|pd.Seri
 
         df_aep = \
         (df_aep
-            .assign(depth = lambda _: np.where(_.depth <= _return_period_max, _.depth, np.nan))
+            .assign(depth = lambda _: np.where(_.return_period <= _return_period_max, _.depth, np.nan))
         )
 
     return df_aep

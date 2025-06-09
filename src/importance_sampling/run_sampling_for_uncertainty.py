@@ -129,12 +129,13 @@ if __name__ == '__main__':
         #%% Frequency analysis plot
         rmse_mc = get_aep_rmse_iter(df_aep_mc_0, df_aep_mc_iter)
         rmse_is = get_aep_rmse_iter(df_aep_mc_0, df_aep_is_iter)
+        rmse_is_clipped = get_aep_rmse_iter(df_aep_mc_0, df_aep_is_iter.loc[lambda _: _.return_period <= n_sim_is/10])
 
         g = \
-        (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth', group = 'type_val', color = 'type_val'))
-            + pn.geom_line(data = df_aep_mc_0.assign(type_val = 'mean'), mapping = pn.aes(color='"Truth"'))
-            + pn.geom_line(data = df_aep_summary_mc_iter, mapping = pn.aes(color='"MC"'))
-            + pn.geom_line(data = df_aep_summary_is_iter, mapping = pn.aes(color='"IS"'))
+        (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth'))
+            + pn.geom_line(data = df_aep_mc_0, mapping = pn.aes(color='"Truth"'))
+            + pn.geom_line(data = df_aep_summary_mc_iter.loc[lambda _: _.type_val.isin(['min', 'max', 'median'])].loc[lambda _: _.return_period <= n_sim_is/10], mapping = pn.aes(color='"MC"', group = 'type_val'), size = 0.75)
+            + pn.geom_line(data = df_aep_summary_is_iter.loc[lambda _: _.type_val.isin(['min', 'max', 'median'])].loc[lambda _: _.return_period <= n_sim_is/10], mapping = pn.aes(color='"IS"', group = 'type_val'), size = 0.75)
             + pn.geom_line(data = df_aep_mc_iter, alpha=0.1, mapping = pn.aes(color='"MC"', group='iter'))
             + pn.geom_line(data = df_aep_is_iter, alpha=0.1, mapping = pn.aes(color='"IS"', group='iter'))
             + pn.scale_x_log10()
@@ -144,7 +145,7 @@ if __name__ == '__main__':
                 x = 'Return Period',
                 y = 'Rainfall Depth (in)',
                 title = f'Uncertainty (N={n_sim_is}, iter={n_iter})',
-                caption = f'RMSE (MC) = {rmse_mc[2]} in\nRMSE (IS) = {rmse_is[2]} in'
+                caption = f'RMSE (MC) = {rmse_mc[2]} in\nRMSE (IS) = {rmse_is_clipped[2]} in\nRMSE (IS full) = {rmse_is[2]} in'
             )
             + pn.theme_bw()
             + pn.theme(
@@ -156,7 +157,42 @@ if __name__ == '__main__':
                 plot_caption = pn.element_text(hjust = 1)
             )
         )
-        g.show()
-        # g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+        # g.show()
+        g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+
+#endregion -----------------------------------------------------------------------------------------
+#region Temp
+
+#%%
+from src.stats.aep import get_aep_depths, get_aep_uncertainty
+
+#%%
+def _temp(df_prob):
+    df_aep_iter = pd.DataFrame()
+    for i in df_prob.iter.unique():
+        df_aep = get_aep_depths(df_prob.loc[lambda _: _.iter == i]).assign(iter = i)
+    
+        df_aep_iter = pd.concat([df_aep_iter, df_aep])
+    
+    df_aep_summary = get_aep_uncertainty(df_aep_iter)
+
+    return df_aep_iter, df_aep_summary
+    
+
+#%%
+# df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_mc}.pkl')
+# df_aep_mc_0 = get_aep_depths(df_prob_mc_0)
+# df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
+
+for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
+    df_prob_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+    df_aep_mc_iter, df_aep_summary_mc_iter = _temp(df_prob_mc_iter)
+    df_aep_mc_iter.to_pickle(cwd/'pickle'/f'df_aep_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+    df_aep_summary_mc_iter.to_pickle(cwd/'pickle'/f'df_aep_summary_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
+
+    df_prob_is_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
+    df_aep_is_iter, df_aep_summary_is_iter = _temp(df_prob_is_iter)
+    df_aep_is_iter.to_pickle(cwd/'pickle'/f'df_aep_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
+    df_aep_summary_is_iter.to_pickle(cwd/'pickle'/f'df_aep_summary_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
 
 #endregion -----------------------------------------------------------------------------------------
