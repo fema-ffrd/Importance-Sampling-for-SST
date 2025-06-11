@@ -32,7 +32,7 @@ from src.evaluation.metrics import get_aep_rmse, get_aep_rmse_iter
 #region Set Watershed
 
 #%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
 folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
 #endregion -----------------------------------------------------------------------------------------
@@ -91,6 +91,7 @@ df_aep_mc.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_is}.pkl')
 #     param_2 = ['0.1'],
 # ))
 
+#%%
 _coverage_factor = 0.8
 
 #endregion -----------------------------------------------------------------------------------------
@@ -144,7 +145,7 @@ df_storm_sample_is = sample_storms(df_storms, sp_domain, dist_xy = dist_xy, num_
 
 g = plot_sample_centers(df_storm_sample_is, sp_watershed, sp_domain, v_domain_stats)
 g.show()
-g.save(cwd/'plots'/f'XY n_{n_sim_is} {row.name_file}.png', width=10, height=7)
+# g.save(cwd/'plots'/f'XY n_{n_sim_is} {row.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
 #region Run Simulations - Importance Sampling
@@ -200,8 +201,8 @@ g.show()
 #endregion -----------------------------------------------------------------------------------------
 #region Ground Truth Evaluation
 
-#%%
-import scipy.stats as stats
+# #%%
+# import scipy.stats as stats
 
 #%%
 _df_aep_mc_0_1 = pd.read_pickle(cwd/'pickle/df_aep_mc_n_1000000.pkl')

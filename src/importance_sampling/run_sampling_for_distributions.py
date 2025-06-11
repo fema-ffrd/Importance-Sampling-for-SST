@@ -31,7 +31,7 @@ from src.evaluation.plotting import plot_sample_centers, plot_xy_vs_depth, plot_
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder

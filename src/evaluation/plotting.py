@@ -147,9 +147,7 @@ def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
 
 #%%
 #TODO
-def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain):
-    num_bins = 20
-    
+def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain, stat: Literal['sum', 'mean', 'max'] = 'sum', num_bins=30):
     # Create the bin edges for both x and y axes
     # This ensures our grid covers the entire data range.
     x_bins = np.linspace(df_depths['x_sampled'].min(), df_depths['x_sampled'].max(), num_bins + 1)
@@ -160,10 +158,13 @@ def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain):
     df_depths['y_interval'] = pd.cut(df_depths['y_sampled'], bins=y_bins, include_lowest=True)
     
     # Group by the interval bins and sum the values
-    df_summary = df_depths.groupby(['x_interval', 'y_interval'], observed=False).agg(
-        value_sum=('depth', 'sum')
-    ).reset_index()
-    
+    df_summary = \
+    (df_depths
+        .groupby(['x_interval', 'y_interval'], observed=False)
+        .agg(value=('depth', stat))
+        .reset_index()
+    )
+
     # ---- CRUCIAL STEP: Calculate numeric properties for plotting ----
     # Get the numeric center of each interval for the x and y coordinates
     df_summary['x_center'] = df_summary['x_interval'].apply(lambda i: i.mid).astype(float)
@@ -172,19 +173,26 @@ def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain):
     # Get the width and height of each tile from the interval size
     df_summary['tile_width'] = df_summary['x_interval'].apply(lambda i: i.right - i.left)
     df_summary['tile_height'] = df_summary['y_interval'].apply(lambda i: i.right - i.left)
+
+    df_summary = df_summary.loc[lambda _: _.value > 0]
     
     g = \
     (pn.ggplot(df_summary)  # Start with the summary dataframe
         + pn.geom_tile(pn.aes(
             x='x_center',
             y='y_center',
-            fill='value_sum',
+            fill='value',
         ))
+        # + pn.geom_text(pn.aes(
+        #     x='x_center',
+        #     y='y_center',
+        #     label='value',
+        # ))
         + pn.geom_polygon(data = sp_watershed.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='red')
         + pn.geom_polygon(data = sp_domain.get_coordinates(), mapping=pn.aes('x', 'y'), fill=None, color='blue')
-        + pn.scale_fill_distiller(type="seq", palette="Blues", direction=1, name="Total Depth") # direction=1 is light to dark
+        + pn.scale_fill_distiller(type="seq", palette="Blues", direction=1, name=f"Total Depth") # direction=1 is light to dark
         + pn.labs(
-            title="Distribution of total depth in watershed",
+            title=f"Distribution of {stat} of total depth in watershed",
             x="x samples",
             y="y samples",
             # fill="Sum of Values"   # The legend title

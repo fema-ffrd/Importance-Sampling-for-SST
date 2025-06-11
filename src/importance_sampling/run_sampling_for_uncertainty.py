@@ -164,38 +164,3 @@ if __name__ == '__main__':
         g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
-#region Temp
-
-#%%
-from src.stats.aep import get_aep_depths, get_aep_uncertainty
-
-#%%
-def _temp(df_prob):
-    df_aep_iter = pd.DataFrame()
-    for i in df_prob.iter.unique():
-        df_aep = get_aep_depths(df_prob.loc[lambda _: _.iter == i]).assign(iter = i)
-    
-        df_aep_iter = pd.concat([df_aep_iter, df_aep])
-    
-    df_aep_summary = get_aep_uncertainty(df_aep_iter)
-
-    return df_aep_iter, df_aep_summary
-    
-
-#%%
-# df_prob_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_n_{n_sim_mc}.pkl')
-# df_aep_mc_0 = get_aep_depths(df_prob_mc_0)
-# df_aep_mc_0.to_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
-
-for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
-    df_prob_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
-    df_aep_mc_iter, df_aep_summary_mc_iter = _temp(df_prob_mc_iter)
-    df_aep_mc_iter.to_pickle(cwd/'pickle'/f'df_aep_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
-    df_aep_summary_mc_iter.to_pickle(cwd/'pickle'/f'df_aep_summary_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
-
-    df_prob_is_iter = pd.read_pickle(cwd/'pickle'/f'df_prob_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
-    df_aep_is_iter, df_aep_summary_is_iter = _temp(df_prob_is_iter)
-    df_aep_is_iter.to_pickle(cwd/'pickle'/f'df_aep_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
-    df_aep_summary_is_iter.to_pickle(cwd/'pickle'/f'df_aep_summary_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
-
-#endregion -----------------------------------------------------------------------------------------
