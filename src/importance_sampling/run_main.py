@@ -32,7 +32,7 @@ from src.evaluation.metrics import get_aep_rmse, get_aep_rmse_iter
 #region Set Watershed
 
 #%% Select Watershed
-name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][2]
 folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
 #endregion -----------------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ g_y.show()
 # g_y.save(cwd/'plots'/f'Check y vs depth for primary Monte Carlo.png', width=10, height=7)
 
 #%% Plot depth vs coordinates 2D (for full MC)
-g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain)
+g_xy = plot_xy_vs_depth_2d(df_depths_mc_0, sp_watershed, sp_domain, 'std')
 g_xy.show()
 # g_xy.save(cwd/'plots'/f'Check xy vs depth for primary Monte Carlo.png', width=10, height=7)
 

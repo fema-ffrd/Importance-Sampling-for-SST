@@ -3581,3 +3581,22 @@ if __name__ == "__main__":
 #     df_aep_summary_is_iter.to_pickle(cwd/'pickle'/f'df_aep_summary_is_iter_n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.pkl')
 
 #endregion -----------------------------------------------------------------------------------------
+#region 
+
+#%%
+data = {
+    'group': ['A', 'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'C', 'C', 'C'],
+    'x':     [1,   2,   3,   4,   5,   10,  12,  15,  20,  5,   10,  15],
+    # Note the decreasing y-values in groups A and B
+    'y':     [10,  12,  11,  15,  14,  100, 90,  95,  92,  20,  25,  30]
+}
+df = pd.DataFrame(data)
+
+print("Original DataFrame:")
+print(df)
+print("-" * 30)
+
+# 2. The one-line solution to enforce non-decreasing 'y' within each group
+df['y'] = df.groupby('group')['y'].transform('cummax')
+
+#endregion -----------------------------------------------------------------------------------------

@@ -147,7 +147,7 @@ def plot_xy_vs_depth(df_depths, sp_watershed=None, v_watershed_stats=None):
 
 #%%
 #TODO
-def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain, stat: Literal['sum', 'mean', 'max'] = 'sum', num_bins=30):
+def plot_xy_vs_depth_2d(df_depths, sp_watershed, sp_domain, stat: Literal['sum', 'mean', 'max', 'std'] = 'sum', num_bins=30):
     # Create the bin edges for both x and y axes
     # This ensures our grid covers the entire data range.
     x_bins = np.linspace(df_depths['x_sampled'].min(), df_depths['x_sampled'].max(), num_bins + 1)

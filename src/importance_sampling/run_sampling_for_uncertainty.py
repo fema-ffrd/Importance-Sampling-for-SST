@@ -33,7 +33,7 @@ from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistrib
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
     # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_Concentrated\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
     # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_SpreadOut\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
@@ -132,6 +132,9 @@ if __name__ == '__main__':
         rmse_mc = get_aep_rmse_iter(df_aep_mc_0, df_aep_mc_iter)
         rmse_is = get_aep_rmse_iter(df_aep_mc_0, df_aep_is_iter)
         rmse_is_clipped = get_aep_rmse_iter(df_aep_mc_0, df_aep_is_iter.loc[lambda _: _.return_period <= n_sim_is/10])
+
+        df_aep_summary_mc_iter['depth'] = df_aep_summary_mc_iter.groupby('type_val')['depth'].transform('cummax')
+        df_aep_summary_is_iter['depth'] = df_aep_summary_is_iter.groupby('type_val')['depth'].transform('cummax')
 
         g = \
         (pn.ggplot(mapping = pn.aes(x = 'return_period', y = 'depth'))
