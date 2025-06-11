@@ -33,10 +33,11 @@ from src.stats.distributions import TruncatedGeneralizedNormal, TruncatedDistrib
 #%%
 if __name__ == '__main__':
     #%% Select Watershed
-    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][1]
+    name_watershed = ['Duwamish', 'Kanahwa', 'Trinity'][0]
     folder_watershed = rf'D:\Scripts\Python\FEMA_FFRD_Git_PB\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
     # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_Concentrated\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
     # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250608_SpreadOut\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
+    # folder_watershed = rf'W:\Projects\206698_FEMA_SO3_Inno\Calcs\Working\PB\_Scripts\20250610\Importance-Sampling-for-SST\data\1_interim\{name_watershed}'
 
     #%% Working folder
     os.chdir(folder_watershed)
@@ -54,6 +55,8 @@ if __name__ == '__main__':
     n_sim_mc = 1_000_000
     v_n_sim_is = [5_000, 10_000, 100_000]
     v_n_iter = [100, 100, 10]
+    # v_n_sim_is = [1_000, 2_000, 3_000, 5_000, 7_500, 10_000, 15_000] #, 20_000, 30_000, 50_000]
+    # v_n_iter = np.repeat(100, len(v_n_sim_is))
 
     # #%% Read parameters
     # df_dist_params = pd.DataFrame(dict(
@@ -111,6 +114,7 @@ if __name__ == '__main__':
     df_aep_mc_0: pd.DataFrame = pd.read_pickle(cwd/'pickle'/f'df_aep_mc_n_{n_sim_mc}.pkl')
 
     #%% Plot uncertainty analysis results
+    df_rmse = pd.DataFrame()
     for n_sim_is, n_iter in zip(v_n_sim_is, v_n_iter):
         #%% Read uncertainty analysis results
         df_depths_mc_iter = pd.read_pickle(cwd/'pickle'/f'df_depths_mc_iter_n_{n_sim_is}x{n_iter}.pkl')
@@ -144,8 +148,8 @@ if __name__ == '__main__':
             + pn.geom_line(data = df_aep_mc_iter, alpha=0.1, mapping = pn.aes(color='"MC"', group='iter'))
             + pn.geom_line(data = df_aep_is_iter, alpha=0.1, mapping = pn.aes(color='"IS"', group='iter'))
             + pn.scale_x_log10()
+            # + pn.ylim(4, 16)
             + pn.labs(
-                # x = 'Return Period',
                 # x = 'Exceedence Probability',
                 x = 'Return Period',
                 y = 'Rainfall Depth (in)',
@@ -165,5 +169,52 @@ if __name__ == '__main__':
         )
         # g.show()
         g.save(cwd/'plots'/f'Freq u n_{n_sim_is}x{n_iter} {row_dist_params.name_file}.png', width=10, height=7)
+
+        #%%
+        _df_rmse = \
+        pd.DataFrame(dict(
+            n_sim = [n_sim_is],
+            rmse_mc_mean = [rmse_mc[1].get('rmse_mean')],
+            rmse_mc_median = [rmse_mc[1].get('rmse_median')],
+            rmse_mc_me = [rmse_mc[1].get('rmse_me')],
+            rmse_is_mean = [rmse_is[1].get('rmse_mean')],
+            rmse_is_median = [rmse_is[1].get('rmse_median')],
+            rmse_is_me = [rmse_is[1].get('rmse_me')],
+        ))
+
+        df_rmse = pd.concat([df_rmse, _df_rmse])
+
+    #%%
+    df_rmse = \
+    (df_rmse
+        .assign(rmse_mc_upper = lambda _: _.rmse_mc_mean + _.rmse_mc_me)
+        .assign(rmse_mc_lower = lambda _: _.rmse_mc_mean - _.rmse_mc_me)
+        .assign(rmse_is_upper = lambda _: _.rmse_is_mean + _.rmse_is_me)
+        .assign(rmse_is_lower = lambda _: _.rmse_is_mean - _.rmse_is_me)
+    )
+    g = \
+    (pn.ggplot(df_rmse, pn.aes(x='n_sim'))
+        + pn.geom_ribbon(mapping=pn.aes(ymin='rmse_mc_lower', ymax='rmse_mc_upper', fill = '"MC"'), alpha=0.25)
+        + pn.geom_ribbon(mapping=pn.aes(ymin='rmse_is_lower', ymax='rmse_is_upper', fill = '"IS"'), alpha=0.25)
+        + pn.geom_line(mapping=pn.aes(y='rmse_mc_mean', color = '"MC"'))
+        + pn.geom_line(mapping=pn.aes(y='rmse_is_mean', color = '"IS"'))
+        + pn.scale_fill_manual(values={'MC': 'green', 'IS': 'blue'})
+        + pn.scale_color_manual(values={'MC': 'green', 'IS': 'blue'})
+        + pn.scale_x_continuous(breaks = v_n_sim_is)
+        + pn.labs(title = f'Decrease in RMSE with more simuations',
+                  x = 'Number of simulations',
+                  y = 'RMSE')
+        + pn.theme_bw()
+        + pn.theme(
+            title = pn.element_text(hjust = 0.5),
+            # legend_position = 'bottom',
+            legend_title = pn.element_blank(),
+            legend_key = pn.element_blank(),
+            axis_title_y = pn.element_text(ha = 'left'),
+            plot_caption = pn.element_text(hjust = 1)
+        )   
+    )
+    # g.show()
+    g.save(cwd/'plots'/f'RMSE vs num_sim {row_dist_params.name_file}.png', width=10, height=7)
 
 #endregion -----------------------------------------------------------------------------------------
