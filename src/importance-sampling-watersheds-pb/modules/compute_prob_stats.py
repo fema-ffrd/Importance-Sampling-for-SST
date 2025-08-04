@@ -3,7 +3,6 @@
 #%%
 import numpy as np
 import pandas as pd
-
 import geopandas as gpd
 
 #endregion -----------------------------------------------------------------------------------------
@@ -16,6 +15,9 @@ def print_sim_stats(df_depths: pd.DataFrame, multiplier: float=1) -> None:
     Args:
         df_depths (pd.DataFrame): Dataframe of probabilities from 'compute_depths'.
         multiplier (float, optional): A multiplier for deth values. Defaults to 1.
+
+    Returns:
+        None: Prints the statistics to the console.
     '''
     n_sim = df_depths.shape[0]
     n_sim_intersect = df_depths.loc[lambda _: _.intersected == 1].shape[0]
@@ -81,11 +83,12 @@ def get_prob(df_depths: pd.DataFrame, greater_than: list = None,  greater_than_i
 
     Args:
         df_depths (pd.DataFrame): Dataframe of probabilities from 'compute_depths'.
-        greater_than: The threshold greater than which to calculate the probability.
-        greater_than_incl: If True, condition is depth >= greater_than.
-                           If False, condition is depth > greater_than.
-        less_than: The threshold less than which to calculate the probability.
-        less_than_incl: If True, condition is depth <= less_than.
+        greater_than (list or value, optional): The threshold greater than which to calculate the probability.
+        greater_than_incl (bool, optional): 
+                            - If True, condition is depth >= greater_than.
+                            - If False, condition is depth > greater_than.
+        less_than (list or value, optional): The threshold less than which to calculate the probability.
+        less_than_incl (bool, optional): If True, condition is depth <= less_than.
                         If False, condition is depth < less_than.
     '''
     v_depth = df_depths.depth

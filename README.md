@@ -1,3 +1,98 @@
+# Importance Sampling for SST
+
+## Project Overview
+
+This project aims to improve Stochastic Storm Transposition (SST) through advanced importance sampling strategies, enhancing computational efficiency while maintaining statistical integrity. The repository provides tools and APIs for generating watershed-averaged precipitation-frequency curves using both simple and adaptive stratified importance sampling methods.
+
+### Goals and Objectives
+- Efficiently generate watershed-averaged precipitation-frequency curves
+- Preserve statistical properties of precipitation data
+- Optimize computational efficiency for large-scale hydrologic analysis
+- Evaluate trade-offs between sampling complexity and computational demands
+
+### Key Methods
+- **Simple Method:** Uses a truncated bivariate normal distribution for importance sampling
+- **Advanced Method:** Employs adaptive stratified importance sampling to create an optimal x-y importance grid
+
+### Planned Activities
+- Develop and test importance sampling methods
+- Create adaptive grids for sampling
+- Integrate approaches with current SST procedures
+- Evaluate performance on specific watersheds
+
+---
+
+## Getting Started
+
+### Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Visual Studio Code (VSCode)](https://code.visualstudio.com/download)
+- [Remote - Containers extension for VSCode](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+### Setup Instructions
+1. Ensure Docker Desktop is running.
+2. Clone the repository:
+   ```sh
+   git clone https://github.com/fema-ffrd/Importance-Sampling-for-SST.git
+   ```
+3. Open the project folder in VSCode.
+4. When prompted, click "Reopen in Container" to open the project inside the devcontainer. If not prompted, use the command palette (`Ctrl+Shift+P`) and select "Dev Containers: Rebuild and Reopen in Container".
+5. Wait for the devcontainer to build and start (may take several minutes on first run).
+
+### Adding Dependencies
+Use the `env.yaml` file at the project root to manage top-level dependencies. Only specify major.minor versions to allow automatic patch updates. For complex dependencies, update the `.devcontainer/Dockerfile` and the production `Dockerfile` as needed.
+
+---
+
+## Project Organization
+
+The repository contains the source code for the various tools available through the `important-sampling` package, CLI, and Boathouse toolkit. The main components are:
+
+- **Python APIs:** Located in `src/important-sampling-watersheds-pb/` and related submodules
+- **CLI Tools:** Command-line interfaces for running key workflows
+- **Boathouse Integration:** Interfaces for use with the Boathouse toolkit
+
+### Main Modules
+- `src/cli/`: Command-line interface scripts
+- `src/evaluation/`: Evaluation and plotting utilities
+- `src/importance-sampling-watersheds-pb/`: Core importance sampling logic and modules
+- `src/met/`: Meteorological data processing
+- `src/toy_problem/`: Toy models and testing scripts
+- `src/transpose/`: Transposition and sampling utilities
+- `src/utils/`: Utility functions for geospatial and statistical operations
+
+---
+
+## Methodology & Workflow
+
+The typical workflow involves:
+1. Preprocessing storm catalogues
+2. Sampling storm events using importance sampling
+3. Computing precipitation depths and statistics
+4. Evaluating and visualizing results
+
+**Detailed workflow diagrams and flowcharts will be added in future updates.**
+
+---
+
+## Contributing
+
+Please follow the coding standards and contribution guidelines linked at the top of this document. Format your code with `black` and ensure all linting and tests pass before submitting a pull request.
+
+---
+
+## License
+
+This project is licensed under the terms of the LICENSE file in this repository.
+
+---
+
+## Contact
+
+For questions or further information, please contact the project maintainers or refer to internal documentation.
+
+---
+
 # Important Sampling for SST
 ==============================
 

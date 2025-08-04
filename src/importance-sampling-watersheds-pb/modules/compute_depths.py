@@ -9,14 +9,10 @@ from shift_storm_center import shift_gdf
 
 #%%
 from typing import Literal
-
 from tqdm import tqdm
-
 from joblib import Parallel, delayed
-
 import numpy as np
 import pandas as pd
-
 import geopandas as gpd
 
 #endregion -----------------------------------------------------------------------------------------
@@ -31,13 +27,7 @@ def _compute_depth_single(sp_watershed: gpd.GeoDataFrame, path_storm: str, shift
     return _depth
 
 #%% For each row in df_storm_sample, compute depth (shift storm and get zonal stat within watershed)
-def compute_depths(
-    df_storm_sample: pd.DataFrame,
-    sp_watershed: gpd.GeoDataFrame,
-    shift: Literal['watershed', 'storm', 'best'] = 'watershed',
-    parallel = True,
-    n_jobs = -2,
-) -> pd.DataFrame:
+def compute_depths(df_storm_sample: pd.DataFrame, sp_watershed: gpd.GeoDataFrame, shift: Literal['watershed', 'storm', 'best'] = 'watershed', parallel = True, n_jobs = -2,) -> pd.DataFrame:
     '''Compute storm depths based on storm samples and watershed.
 
     Args:
@@ -82,7 +72,6 @@ def compute_depths(
         .assign(intersected = lambda _: np.where(_.depth.isna(), 0, 1))
         .fillna({'depth': 0})
     )
-
     return df_storm_sample
 
 #endregion -----------------------------------------------------------------------------------------

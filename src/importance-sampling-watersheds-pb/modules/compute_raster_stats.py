@@ -2,11 +2,8 @@
 
 #%%
 from typing import Literal
-
 import numpy as np
-
 import geopandas as gpd
-
 import rasterio as rio
 import rioxarray as rxr # This import enables the .rio accessor on xarray objects
 import rasterstats
@@ -16,6 +13,17 @@ import rasterstats
 
 #%% rasterio (fastest)
 def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gpd.GeoDataFrame:
+    '''
+    Match the coordinate reference system (CRS) of a GeoDataFrame to that of a raster file using rasterio.
+    # Note: Rasterio is Fastest 
+
+    Args:
+        gdf (gpd.GeoDataFrame): The GeoDataFrame whose CRS may need to be updated.
+        path_raster (str): Path to the raster file whose CRS should be matched.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame with CRS matching the raster.
+    '''
     with rio.open(path_raster) as src:
         raster_crs = src.crs
 
@@ -29,6 +37,16 @@ def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gp
 
 #%% xarray
 def _match_crs_to_raster_rasterio(gdf: gpd.GeoDataFrame, path_raster: str) -> gpd.GeoDataFrame:
+    '''
+    Match the CRS of a GeoDataFrame to that of a raster file using rioxarray.
+
+    Args:
+        gdf (gpd.GeoDataFrame): The GeoDataFrame whose CRS may need to be updated.
+        path_raster (str): Path to the raster file whose CRS should be matched.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame with CRS matching the raster.
+    '''
     xr_dataset = rxr.open_rasterio(path_raster, masked=True)
 
     if gdf.crs is None and xr_dataset.rio.crs is not None:
@@ -66,6 +84,16 @@ def match_crs_to_raster(
 
 #%% rasterio
 def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodataframe) -> float:
+    '''
+    Calculate the sum of raster pixel values within a polygon using rasterio.
+
+    Args:
+        raster_path (str): Path to the raster file.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing the polygon.
+
+    Returns:
+        float: Sum of raster values within the polygon. Returns np.nan if no intersection or error.
+    '''
     try:
         # 1. Read the GeoJSON polygon
         if gdf.empty:
@@ -186,6 +214,16 @@ def _sum_raster_values_in_polygon_rasterio(raster_path: str, gdf: gpd.geodatafra
 
 #%% rasterstats
 def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodataframe) -> float:
+    '''
+    Calculate the sum of raster pixel values within a polygon using the rasterstats library.
+
+    Args:
+        raster_path (str): Path to the raster file.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing the polygon.
+
+    Returns:
+        float: Sum of raster values within the polygon. Returns np.nan if no intersection or error.
+    '''    
     try:
         if gdf.empty:
             return np.nan
@@ -236,6 +274,16 @@ def _sum_raster_values_in_polygon_rasterstats(raster_path: str, gdf: gpd.geodata
 
 #%% xarray
 def _sum_raster_values_in_polygon_xarray(raster_path: str, gdf: gpd.geodataframe) -> float:
+    '''
+    Calculate the sum of raster pixel values within a polygon using rioxarray/xarray.
+
+    Args:
+        raster_path (str): Path to the raster file.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing the polygon.
+
+    Returns:
+        float: Sum of raster values within the polygon. Returns np.nan if no intersection or error.
+    '''
     try:
         if gdf.empty:
             return np.nan

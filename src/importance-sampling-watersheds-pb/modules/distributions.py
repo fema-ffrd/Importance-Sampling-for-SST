@@ -67,6 +67,15 @@ class TruncatedGeneralizedNormal:
                    f"The truncation interval [{self.m}, {self.n}] might be in the extreme tails of the base distribution.")
 
     def pdf(self, v):
+        '''
+        Probability density function for the truncated generalized normal.
+
+        Args:
+            v (float or np.ndarray): Value(s) at which to evaluate the PDF.
+
+        Returns:
+            np.ndarray: PDF values at v.
+        '''
         v = np.asarray(v)
         # PDF is 0 outside the truncation bounds
         is_within_bounds = (v >= self.m) & (v <= self.n)
@@ -84,6 +93,15 @@ class TruncatedGeneralizedNormal:
         return pdf_values
 
     def cdf(self, v):
+        '''
+        Cumulative distribution function for the truncated generalized normal.
+
+        Args:
+            v (float or np.ndarray): Value(s) at which to evaluate the CDF.
+
+        Returns:
+            np.ndarray: CDF values at v.
+        '''        
         v = np.asarray(v)
         cdf_values = np.zeros_like(v, dtype=float)
 
@@ -110,6 +128,15 @@ class TruncatedGeneralizedNormal:
         return cdf_values
 
     def rvs(self, size=1):
+        '''
+        Generate random samples from the truncated generalized normal distribution.
+
+        Args:
+            size (int): Number of samples to generate.
+
+        Returns:
+            np.ndarray: Random samples.
+        '''      
         # Generate uniform samples in the range [CDF(m), CDF(n)]
         u_scaled = np.random.uniform(low=self.cdf_m, high=self.cdf_n, size=size)
 
@@ -117,6 +144,12 @@ class TruncatedGeneralizedNormal:
         return self.untruncated_dist.ppf(u_scaled)
 
     def mean(self):
+        '''
+        Compute the mean of the truncated distribution.
+
+        Returns:
+            float: Mean value.
+        '''     
         # Numerical integration for the mean of the truncated distribution
         # E[X] = integral from m to n of (x * pdf_truncated(x)) dx
         from scipy.integrate import quad
@@ -125,6 +158,12 @@ class TruncatedGeneralizedNormal:
         return mean_val
 
     def std(self):
+        '''
+        Compute the standard deviation of the truncated distribution.
+
+        Returns:
+            float: Standard deviation.
+        '''       
         # Numerical integration for variance, then sqrt for std
         # Var[X] = E[X^2] - (E[X])^2
         # E[X^2] = integral from m to n of (x^2 * pdf_truncated(x)) dx
@@ -207,7 +246,13 @@ class TruncatedDistribution:
         self._var = None
 
     def pdf(self, x):
-        """Probability density function."""
+        """Probability density function.
+        Args:
+            x (float or np.ndarray): Value(s) at which to evaluate the PDF.
+
+        Returns:
+            np.ndarray: PDF values at x.
+        """
         x = np.asarray(x)
         # Initialize pdf values to 0.0
         pdf_values = np.zeros_like(x, dtype=float)
@@ -222,7 +267,15 @@ class TruncatedDistribution:
         return pdf_values
 
     def cdf(self, x):
-        """Cumulative distribution function."""
+        """Cumulative distribution function.
+        
+        Args:
+            x (float or np.ndarray): Value(s) at which to evaluate the CDF.
+
+        Returns:
+            np.ndarray: CDF values at x.
+        
+        """
         x = np.asarray(x)
         # Initialize cdf values
         cdf_values = np.zeros_like(x, dtype=float)
@@ -242,7 +295,13 @@ class TruncatedDistribution:
         return cdf_values
 
     def ppf(self, q):
-        """Percent point function (inverse of cdf)."""
+        """Percent point function (inverse of cdf).
+        Args:
+            q (float or np.ndarray): Quantile(s) to evaluate.
+
+        Returns:
+            np.ndarray: PPF values at q.
+        """
         q = np.asarray(q)
         if np.any((q < 0) | (q > 1)):
             raise ValueError("Input 'q' (quantiles) must be between 0 and 1.")
@@ -266,7 +325,15 @@ class TruncatedDistribution:
         return ppf_values
 
     def rvs(self, size=1, random_state=None):
-        """Random variates."""
+        """Random variates.
+
+        Args:
+            size (int): Number of random variates to generate.
+            random_state (int or np.random.Generator, optional): Seed or random number generator for reproducibility.
+
+        Returns:
+            np.ndarray: Random variates sampled from the truncated distribution.
+        """
         if random_state is not None:
             # For reproducibility if a seed/generator is passed
             # If using a global random state, this line is not strictly needed
@@ -284,7 +351,12 @@ class TruncatedDistribution:
         return self.ppf(uniform_variates)
 
     def support(self):
-        """Returns the support of the distribution (a, b)."""
+        """
+        Returns the support of the distribution (a, b).
+        Returns:
+            tuple: (a, b)        
+        
+        """
         return (self.a, self.b)
 
     # --- Optional: Mean and Variance ---
@@ -326,13 +398,19 @@ class TruncatedDistribution:
             self._moments_calculated = True
 
     def mean(self):
-        """Calculates the mean of the truncated distribution."""
+        """Calculates the mean of the truncated distribution.
+        Returns:
+            float: Mean value.                
+        """
         if not self._moments_calculated:
             self._calculate_moments()
         return self._mean
 
     def var(self):
-        """Calculates the variance of the truncated distribution."""
+        """Calculates the variance of the truncated distribution.
+        Returns:
+            float: Variance value.
+        """
         if not self._moments_calculated:
             self._calculate_moments()
         return self._var
@@ -440,21 +518,43 @@ class MixtureDistribution:
                 self._ppf_search_upper = 1e14
 
     def pdf(self, x):
-        """Probability density function."""
+        """
+        Probability density function.
+         Args:
+            x (float or np.ndarray): Value(s) at which to evaluate the PDF.
+
+        Returns:
+            np.ndarray: PDF values at x.          
+        
+        """
         x = np.asarray(x)
         pdf_val = (self.weight1 * self.dist1.pdf(x) +
                    self.weight2 * self.dist2.pdf(x))
         return pdf_val
 
     def cdf(self, x):
-        """Cumulative distribution function."""
+        """Cumulative distribution function.
+        Args:
+            x (float or np.ndarray): Value(s) at which to evaluate the CDF.
+
+        Returns:
+            np.ndarray: CDF values at x.
+        """
         x = np.asarray(x)
         cdf_val = (self.weight1 * self.dist1.cdf(x) +
                    self.weight2 * self.dist2.cdf(x))
         return cdf_val
 
     def _solve_ppf_scalar(self, q_scalar):
-        """Helper to solve PPF for a single scalar q using numerical root finding."""
+        """
+        Helper to solve PPF for a single scalar q using numerical root finding.
+        
+        Args:
+            q_scalar (float): Quantile between 0 and 1.
+
+        Returns:
+            float: Value corresponding to the quantile.
+        """
         if not (0 <= q_scalar <= 1):
             # This should be caught by the public ppf method, but good to have.
             return np.nan 
@@ -544,7 +644,13 @@ class MixtureDistribution:
 
 
     def ppf(self, q):
-        """Percent point function (inverse of cdf)."""
+        """Percent point function (inverse of cdf).
+        Args:
+            q (float or np.ndarray): Quantile(s) to compute the PPF for.
+
+        Returns:
+            float or np.ndarray: The PPF value(s) corresponding to the input quantile(s).
+        """
         q_arr = np.asarray(q)
         if np.any((q_arr < 0) | (q_arr > 1)):
             raise ValueError("Input 'q' (quantiles) must be between 0 and 1.")
@@ -558,7 +664,14 @@ class MixtureDistribution:
             return results
 
     def rvs(self, size=1, random_state=None):
-        """Random variates."""
+        """Random variates.
+        Args:
+            size (int): The number of random variates to generate.
+            random_state (int or np.random.Generator, optional): Seed or random number generator for reproducibility.
+
+        Returns:
+            np.ndarray: Array of random variates sampled from the mixture distribution.
+        """
         rng = np.random.default_rng(random_state)
         
         # Determine which distribution to sample from for each variate
