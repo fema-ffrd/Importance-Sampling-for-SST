@@ -1,148 +1,163 @@
-from pathlib import Path, PurePosixPath
-from typing import List, Dict, Union, Tuple
-from urllib.parse import urlparse
-import json
+"""
+Module to preprocess watershed and storm catalog data for use in SST Importance Sampling.
+
+Use :class:`Preprocessor` to preprocess your data.
+Call :meth:`Preprocessor.run` after initialization.
+You can reuse a processed dataset using :meth:`Preprocessor.load`.
+
+This module handles:
+- Reading and projecting watershed/domain geometries
+- Reading DSS storm files and computing cumulative precipitation
+- Computing optimal storm transposition centers
+- Saving preprocessed outputs
+
+See the usage guide for a full example.
+"""
+
 import os
-import shutil
-import tempfile
-import requests
+import sys
+import json
+import glob
 import contextlib
+from typing import Dict, Union
+from pathlib import Path
 
 import geopandas as gpd
-import numpy as np
-import pandas as pd
-import pystac
 import xarray as xr
-from hecdss import HecDss
-from pandas import to_datetime
-from pyproj import CRS, Transformer
+import pandas as pd
+import numpy as np
+from shapely.geometry import Point
+from shapely.affinity import translate
+from affine import Affine
+from rasterio.features import rasterize
+from pyproj import CRS
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from hecdss import HecDss
 
-SHG_WKT = 'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-96.0],PARAMETER["Standard_Parallel_1",29.5],PARAMETER["Standard_Parallel_2",45.5],PARAMETER["Latitude_Of_Origin",23.0],UNIT["Meter",1.0]]'
+SHG_WKT = (
+    'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",'
+    'GEOGCS["GCS_North_American_1983",'
+    'DATUM["D_North_American_1983",'
+    'SPHEROID["GRS_1980",6378137.0,298.257222101]],'
+    'PRIMEM["Greenwich",0.0],'
+    'UNIT["Degree",0.0174532925199433]],'
+    'PROJECTION["Albers"],'
+    'PARAMETER["False_Easting",0.0],'
+    'PARAMETER["False_Northing",0.0],'
+    'PARAMETER["Central_Meridian",-96.0],'
+    'PARAMETER["Standard_Parallel_1",29.5],'
+    'PARAMETER["Standard_Parallel_2",45.5],'
+    'PARAMETER["Latitude_Of_Origin",23.0],'
+    'UNIT["Meter",1.0]]'
+)
 
+
+@contextlib.contextmanager
+def _suppress_stdout_stderr():
+    """Internal context manager to silence stdout/stderr. Not part of the public API."""
+    with open(os.devnull, "w") as devnull:
+        old_stdout = os.dup(1)
+        old_stderr = os.dup(2)
+        os.dup2(devnull.fileno(), 1)
+        os.dup2(devnull.fileno(), 2)
+        try:
+            yield
+        finally:
+            os.dup2(old_stdout, 1)
+            os.dup2(old_stderr, 2)
 
 class Preprocessor:
-    def __init__(
-        self,
-        catalog_path: Union[str, Path],
-        config_path: Union[str, Path],
-        shg_wkt: str = SHG_WKT,
-    ) -> None:
-        self.catalog_path = str(catalog_path)
-        self.config_path = str(config_path)
-        self.shg_wkt = shg_wkt
-        self.storm_centers: List[Dict[str, Union[str, float]]] = []
-        self.watershed_gdf: gpd.GeoDataFrame
-        self.domain_gdf: gpd.GeoDataFrame
-        self.aggregated_precip: xr.DataArray
+    """
+    Main class to handle preprocessing of storm catalogs and watershed data.
+
+    Attributes:
+        config_path: Path to the input config.json file.
+        output_folder: Directory to store processed outputs.
+        shg_crs: SHG projection as a pyproj.CRS object.
+        watershed_gdf: GeoDataFrame of projected watershed.
+        domain_gdf: GeoDataFrame of projected domain.
+        cumulative_precip: Dict of cumulative precipitation DataArrays.
+        storm_centers: DataFrame of storm centers (name, x, y).
+    """
+
+    def __init__(self, config_path: str, output_folder: str):
+        self.config_path = config_path
+        self.output_folder = output_folder
+        self.shg_crs = CRS.from_wkt(SHG_WKT)
+        os.makedirs(self.output_folder, exist_ok=True)
+
+        with open(config_path, "r") as f:
+            self.config = json.load(f)
+
+        self.watershed_gdf = None
+        self.domain_gdf = None
+        self.cumulative_precip: Dict[str, xr.DataArray] = {}
+        self.storm_centers = pd.DataFrame(columns=["storm_path", "x", "y"])
 
     def run(self):
-        print("[RUN] Getting storm centers...")
-        self.storm_centers = self._get_storm_centers()
-        print(f"[RUN] Got {len(self.storm_centers)} storm centers")
+        """
+        Executes the full preprocessing workflow.
 
-        print("[RUN] Reading GDF...")
-        self.watershed_gdf, self.domain_gdf = self._read_gdf()
-        print("[RUN] Got GDFs")
+        This includes:
+        - Reprojecting geometries
+        - Reading DSS files and calculating cumulative precipitation
+        - Identifying storm centers
+        - Saving results to NetCDF, Parquet, and GeoPackage
+        - Updating the config file with output paths
+        """
+        self._process_geometries()
+        self._process_dss_files()
+        self._save_outputs()
+        self._update_config()
 
-        print("[RUN] Processing all storms to cube...")
-        self.aggregated_precip = self._process_all_storms_to_cube()
-        print("[RUN] Finished processing storms.")
+    def _process_geometries(self):
+        """Reads and reprojects watershed and domain GeoJSONs to SHG, then saves as GPKG."""
+        watershed_path = self.config["watershed"]["geometry_file"]
+        domain_path = self.config["transposition_region"]["geometry_file"]
 
-    def save(self, output_path: Union[str, Path]) -> None:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.watershed_gdf = gpd.read_file(watershed_path).to_crs(self.shg_crs)
+        self.domain_gdf = gpd.read_file(domain_path).to_crs(self.shg_crs)
 
-        # Save storm centers as Parquet
-        pd.DataFrame(self.storm_centers).to_parquet(output_path.with_suffix(".storm_centers.pq"), index=False)
+        self.watershed_path_out = os.path.join(self.output_folder, "watershed_projected.gpkg")
+        self.domain_path_out = os.path.join(self.output_folder, "domain_projected.gpkg")
 
-        # Save GeoDataFrames as GeoPackage
-        self.watershed_gdf.to_file(output_path.with_suffix(".watershed.gpkg"), driver="GPKG")
-        self.domain_gdf.to_file(output_path.with_suffix(".domain.gpkg"), driver="GPKG")
+        self.watershed_gdf.to_file(self.watershed_path_out, driver="GPKG")
+        self.domain_gdf.to_file(self.domain_path_out, driver="GPKG")
 
-        # Save xarray as NetCDF
-        self.aggregated_precip.to_netcdf(output_path.with_suffix(".nc"))
+    def _process_dss_files(self):
+        """Reads DSS files, computes cumulative precipitation, and determines storm center."""
+        dss_folder = self.config["catalog"]["catalog_folder"]
+        dss_files = sorted(glob.glob(os.path.join(dss_folder, "*.dss")))
 
-    def _get_storm_centers(self) -> List[Dict[str, Union[str, float]]]:
-        storm_info = []
-        parsed = urlparse(self.catalog_path)
-        is_remote = parsed.scheme in ("http", "https", "s3")
-        catalog = pystac.Catalog.from_file(self.catalog_path)
+        for dss_file in tqdm(dss_files, desc="Processing DSS files"):
+            name = os.path.splitext(os.path.basename(dss_file))[0]
 
-        # Create transformer once (WGS84 -> SHG)
-        transformer = Transformer.from_crs("EPSG:4326", CRS.from_wkt(self.shg_wkt), always_xy=True)
+            with _suppress_stdout_stderr():
+                da = self._read_dss_cumulative(dss_file)
 
-        for child_link in catalog.get_links("child"):
-            collection = pystac.Collection.from_file(child_link.absolute_href)
-            for item in collection.get_all_items():
-                props = item.properties
-                transform = props.get("aorc:transform", {})
-                lat = transform.get("storm_center_lat")
-                lon = transform.get("storm_center_lon")
-                dss_asset = item.assets.get("dss")
-                path = dss_asset.href.split("/")[-1] if dss_asset else None
+            self.cumulative_precip[name] = da
+            center = self._compute_storm_center(da)
+            self.storm_centers.loc[len(self.storm_centers)] = {
+                "storm_path": name,
+                "x": center.x,
+                "y": center.y,
+            }
 
-                if path and lat is not None and lon is not None:
-                    x, y = transformer.transform(lon, lat)
-                    storm_info.append({
-                        "storm_path": path,
-                        "lat": lat,
-                        "lon": lon,
-                        "x": x,     # SHG projected X
-                        "y": y      # SHG projected Y
-                    })
-
-        return storm_info
-    
-    def _get_dss_paths_from_catalog(self) -> List[str]:
-        parsed = urlparse(self.catalog_path)
-        is_remote = parsed.scheme in ("http", "https", "s3")
-        catalog = pystac.Catalog.from_file(self.catalog_path)
-
-        dss_paths = []
-        for child_link in catalog.get_links("child"):
-            collection = pystac.Collection.from_file(child_link.absolute_href)
-            for item in collection.get_all_items():
-                item_href = item.self_href
-                item_parsed = urlparse(item_href)
-                item_dir = PurePosixPath(item_parsed.path).parent
-                for asset in item.assets.values():
-                    if asset.href.endswith(".dss"):
-                        relative_href = asset.href
-                        combined = item_dir.joinpath(relative_href)
-                        parts = []
-                        for part in combined.parts:
-                            if part == "..":
-                                if parts:
-                                    parts.pop()
-                            elif part != ".":
-                                parts.append(part)
-                        normalized_path = PurePosixPath(*parts)
-                        if is_remote:
-                            bucket = item_parsed.netloc.split(".")[0]
-                            dss_url = f"https://{bucket}.s3.amazonaws.com{normalized_path}"
-                        else:
-                            local_root = Path(item_parsed.path).resolve().parent
-                            dss_url = str(local_root.joinpath(relative_href).resolve())
-                        dss_paths.append(dss_url)
-        return dss_paths
-
-    def _read_dss_as_cumulative_xarray(self, dss_path: str) -> xr.DataArray:
+    def _read_dss_cumulative(self, dss_path: str) -> xr.DataArray:
+        """Reads a DSS file and returns cumulative precipitation as an xarray.DataArray."""
         dss = HecDss(dss_path)
         catalog = dss.get_catalog()
-        paths = [p for p in catalog.uncondensed_paths if "SHG" in p and "AORC" in p and "/PRECIPITATION/" in p]
-        data_list, time_list = [], []
+        paths = [p for p in catalog.uncondensed_paths if "PRECIPITATION" in p and "SHG" in p]
+        data_list = []
         sample_grid = None
         cell_size = ll_x = ll_y = None
-        
+
         for path in paths:
             record = dss.get(path)
             grid = record.data.astype(np.float32)
-            grid[grid == -3.40282347e38] = np.nan
+            grid[grid == -3.4028235e38] = np.nan
             data_list.append(grid)
-            ts = to_datetime(path.split("/")[4], format="%d%b%Y:%H%M", errors="coerce")
-            time_list.append(ts.to_pydatetime())
+
             if sample_grid is None:
                 sample_grid = grid
                 cell_size = record.cellSize
@@ -150,97 +165,135 @@ class Preprocessor:
                 ll_y = record.lowerLeftCellY * cell_size
 
         dss.close()
-        rows, cols = sample_grid.shape
+
+        data_stack = np.stack(data_list, axis=0)
+        cumulative = np.nansum(data_stack, axis=0)
+
+        rows, cols = cumulative.shape
         x_coords = ll_x + np.arange(cols) * cell_size
         y_coords = ll_y + np.arange(rows) * cell_size
 
-        data_stack = np.stack(data_list, axis=0)
-
         return xr.DataArray(
-            data_stack,
-            dims=("time", "y", "x"),
-            coords={
-                "time": time_list,
-                "y": y_coords,
-                "x": x_coords,
-            },
-            name="precipitation",
-            attrs={
-                "units": "mm",
-                "crs": self.shg_wkt,
-                "cell_size_m": cell_size,
-            },
-        ).sum(dim="time", skipna=True)
+            cumulative,
+            dims=("y", "x"),
+            coords={"x": x_coords, "y": y_coords},
+            attrs={"units": "mm", "cell_size": cell_size, "crs": self.shg_crs.to_string()},
+        )
 
-    def _process_single_dss(self, dss_path: str) -> Union[xr.DataArray, None]:
-        is_remote = urlparse(dss_path).scheme in ("http", "https", "s3")
-        storm_id = os.path.basename(dss_path)
-        temp_path = None
-        try:
-            if is_remote:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".dss") as tmp:
-                    response = requests.get(dss_path, stream=True)
-                    response.raise_for_status()
-                    with open(tmp.name, "wb") as f:
-                        shutil.copyfileobj(response.raw, f)
-                    temp_path = tmp.name
-            else:
-                temp_path = dss_path
-            da = self._read_dss_as_cumulative_xarray(temp_path)
-            return da.expand_dims(storm_path=[storm_id])
-        except Exception as e:
-            print(f"[ERROR] DSS processing failed for {dss_path}: {e}")
-            return None
-        finally:
-            if is_remote and temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+    def _compute_storm_center(self, da: xr.DataArray) -> Point:
+        """Finds best storm center position by maximizing precipitation over watershed."""
+        precip = da.values
+        y_coords = da["y"].values
+        x_coords = da["x"].values
+        dx = np.mean(np.diff(x_coords))
+        dy = np.mean(np.diff(y_coords))
+        transform = Affine.translation(x_coords[0] - dx / 2, y_coords[0] - dy / 2) * Affine.scale(
+            dx, dy
+        )
 
-    def _process_all_storms_to_cube(self, max_workers: int = 25) -> xr.DataArray:
-        dss_paths = self._get_dss_paths_from_catalog()
-        if not dss_paths:
-            raise RuntimeError("No DSS paths found in the catalog.")
+        rows, cols = precip.shape
+        watershed_poly = self.watershed_gdf.geometry.iloc[0]
+        domain_poly = self.domain_gdf.geometry.iloc[0]
 
-        all_das = []
-        storm_ids = []
+        watershed_mask = rasterize([(watershed_poly, 1)], out_shape=(rows, cols), transform=transform)
+        domain_mask = rasterize([(domain_poly, 1)], out_shape=(rows, cols), transform=transform)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self._process_single_dss, path): path for path in dss_paths}
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing storms"):
-                da = future.result()
-                if da is not None:
-                    all_das.append(da)
-                    storm_ids.append(da.storm_path.values[0])
+        w_inds = np.argwhere(watershed_mask)
+        h_w, w_w = np.ptp(w_inds, axis=0) + 1
 
-        if not all_das:
-            raise RuntimeError("No DSS files could be successfully processed.")
+        best_total = -np.inf
+        best_shift = (0, 0)
 
-        combined = xr.concat(all_das, dim="storm_path")
-        return combined.assign_coords(storm_path=("storm_path", storm_ids))
+        for i in range(rows - h_w):
+            for j in range(cols - w_w):
+                sub_d = domain_mask[i : i + h_w, j : j + w_w]
+                sub_p = precip[i : i + h_w, j : j + w_w]
+                w_mask = watershed_mask[
+                    w_inds[:, 0].min() : w_inds[:, 0].min() + h_w,
+                    w_inds[:, 1].min() : w_inds[:, 1].min() + w_w,
+                ]
+                if sub_d.shape != w_mask.shape or np.any((w_mask == 1) & (sub_d == 0)):
+                    continue
+                total = np.nansum(sub_p[w_mask == 1])
+                if total > best_total:
+                    best_total = total
+                    best_shift = (j - w_inds[:, 1].min(), i - w_inds[:, 0].min())
 
-    def _read_gdf(self) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-        with open(self.config_path, "r") as f:
-            config = json.load(f)
-        watershed_path = config["watershed"]["geometry_file"]
-        domain_path = config["transposition_region"]["geometry_file"]
-        watershed_gdf = gpd.read_file(watershed_path).to_crs(CRS.from_wkt(self.shg_wkt))
-        domain_gdf = gpd.read_file(domain_path).to_crs(CRS.from_wkt(self.shg_wkt))
-        return watershed_gdf, domain_gdf
-    
+        dx_m = best_shift[0] * dx
+        dy_m = best_shift[1] * dy
+        shifted_poly = translate(watershed_poly, xoff=dx_m, yoff=dy_m)
+        return shifted_poly.centroid
+
+    def _save_outputs(self):
+        """Saves NetCDF and Parquet output files to output folder."""
+        # Add stacking to make a 3D DataArray
+        da_stack = xr.concat(
+            list(self.cumulative_precip.values()),
+            dim=pd.Index(self.cumulative_precip.keys(), name="storm_path")
+        )
+        self.nc_path = os.path.join(self.output_folder, "cumulative_precip.nc")
+        da_stack.to_netcdf(self.nc_path)
+
+        self.storm_center_path = os.path.join(self.output_folder, "storm_centers.pq")
+        self.storm_centers.to_parquet(self.storm_center_path, index=False)
+
+    def _update_config(self):
+        """Updates the config.json file with processed output file paths."""
+        self.config["preprocessed"] = {
+            "watershed_projected": self.watershed_path_out,
+            "domain_projected": self.domain_path_out,
+            "cumulative_precip": self.nc_path,
+            "storm_centers": self.storm_center_path,
+        }
+
+        out_config_path = os.path.join(self.output_folder, "config.json")
+        with open(out_config_path, "w") as f:
+            json.dump(self.config, f, indent=4)
+
     @classmethod
-    def load(cls, base_path: Union[str, Path], shg_wkt: str = SHG_WKT) -> "Preprocessor":
-        base_path = Path(base_path)
-        obj = cls("dummy", "dummy", shg_wkt=shg_wkt)
-        obj.storm_centers = pd.read_parquet(base_path.with_suffix(".storm_centers.pq"))
-        obj.watershed_gdf = gpd.read_file(base_path.with_suffix(".watershed.gpkg"))
-        obj.domain_gdf = gpd.read_file(base_path.with_suffix(".domain.gpkg"))
-        obj.aggregated_precip = xr.load_dataarray(base_path.with_suffix(".nc"))
+    def load(cls, output_folder: Union[str, Path]) -> "Preprocessor":
+        """
+        Load a preprocessed Preprocessor instance from disk using the config file.
+
+        This method reads the `config.json` file located in the specified output folder,
+        loads the projected watershed and domain geometries, the cumulative precipitation
+        NetCDF dataset, and the storm center locations stored in a Parquet file.
+
+        Parameters
+        ----------
+        output_folder : str or Path
+            Path to the folder containing the `config.json` file and all preprocessed outputs.
+
+        Returns
+        -------
+        Preprocessor
+            A `Preprocessor` instance with all data loaded and ready for use.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the `config.json` file is missing in the provided folder.
+        ValueError
+            If the `preprocessed` section is missing from the config file.
+        """
+        output_folder = Path(output_folder)
+        config_path = output_folder / "config.json"
+
+        if not config_path.exists():
+            raise FileNotFoundError(f"No config.json found in {output_folder}")
+
+        obj = cls(config_path=config_path, output_folder=str(output_folder))
+
+        with open(config_path, "r") as f:
+            obj.config = json.load(f)
+
+        pre = obj.config.get("preprocessed", {})
+        if not pre:
+            raise ValueError("Missing 'preprocessed' section in config.json")
+
+        obj.watershed_gdf = gpd.read_file(pre["watershed_projected"])
+        obj.domain_gdf = gpd.read_file(pre["domain_projected"])
+        obj.cumulative_precip = xr.open_dataarray(pre["cumulative_precip"])
+        obj.storm_centers = pd.read_parquet(pre["storm_centers"])
+
         return obj
-
-if __name__ == "__main__":
-    catalog_url = "https://trinity-pilot.s3.amazonaws.com/stac/prod-support/storms/catalog.json"
-    config_url = "/workspaces/Importance-Sampling-for-SST/data/0_source/geojsons/Trinity/config.json"
-
-    # Instantiate and run preprocessing
-    trinity = Preprocessor(catalog_url, config_url, shg_wkt=SHG_WKT)
-    trinity.run()
-    trinity.save("./data/1_interim/trinity/trinity")
