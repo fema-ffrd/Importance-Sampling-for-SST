@@ -1,0 +1,17 @@
+{
+    "watershed": {
+        "id": "trinity",
+        "geometry_file": "/workspaces/Importance-Sampling-for-SST/data/0_source/Trinity/trinity.geojson",
+        "description": "Trinity watershed for use in development of storm catalog"
+    },
+    "transposition_region": {
+        "id": "trinity-transpo-area-v01",
+        "geometry_file": "/workspaces/Importance-Sampling-for-SST/data/0_source/Trinity/trinity-transpo-area-v01.geojson",
+        "description": "Original Transposition Domain developed by the hydromet team for use in development of storm catalog"
+    },
+    "catalog": {
+        "id": "trinity-catalog",
+        "catalog_folder": "/workspaces/Importance-Sampling-for-SST/data/0_source/Trinity/dss",
+        "description": "Trinity Storm Catalog, AORC 4km, hourly, 10 storms per year"
+    }
+}
