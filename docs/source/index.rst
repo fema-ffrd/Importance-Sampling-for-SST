@@ -14,7 +14,10 @@ It includes:
    :maxdepth: 1
    :caption: User Guide:
 
-   usage
+   quick_start
+   preprocessing
+   sampling
+   depths
 
 .. toctree::
    :maxdepth: 1
