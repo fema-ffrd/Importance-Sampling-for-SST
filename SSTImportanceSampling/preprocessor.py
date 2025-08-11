@@ -33,6 +33,7 @@ from rasterio.features import rasterize
 from pyproj import CRS
 from tqdm import tqdm
 from hecdss import HecDss
+from affine import Affine
 
 SHG_WKT = (
     'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",'
@@ -65,6 +66,16 @@ def _suppress_stdout_stderr():
         finally:
             os.dup2(old_stdout, 1)
             os.dup2(old_stderr, 2)
+
+def _grid_transform_from_coords(x_coords: np.ndarray, y_coords: np.ndarray) -> Affine:
+    """
+    Build an Affine transform assuming x_coords/y_coords are cell centers on a regular grid.
+    """
+    dx = float(np.mean(np.diff(x_coords)))
+    dy = float(np.mean(np.diff(y_coords)))
+    # shift to upper-left corner of the (0,0) cell
+    return Affine.translation(x_coords[0] - dx / 2.0, y_coords[0] - dy / 2.0) * Affine.scale(dx, dy)
+
 
 class Preprocessor:
     """
@@ -137,10 +148,12 @@ class Preprocessor:
 
             self.cumulative_precip[name] = da
             center = self._compute_storm_center(da)
+            pmax = float(np.nanmax(self.cumulative_precip[name].values))
             self.storm_centers.loc[len(self.storm_centers)] = {
                 "storm_path": name,
                 "x": center.x,
                 "y": center.y,
+                "pmax_mm": pmax,
             }
 
     def _read_dss_cumulative(self, dss_path: str) -> xr.DataArray:
@@ -180,49 +193,48 @@ class Preprocessor:
             attrs={"units": "mm", "cell_size": cell_size, "crs": self.shg_crs.to_string()},
         )
 
-    def _compute_storm_center(self, da: xr.DataArray) -> Point:
-        """Finds best storm center position by maximizing precipitation over watershed."""
-        precip = da.values
-        y_coords = da["y"].values
+    def _compute_storm_center(self, da: xr.DataArray, restrict_to_domain: bool = True) -> Point:
+        """
+        Storm center = cell center (x,y) of the maximum cumulative precipitation.
+
+        Args:
+            da: 2D DataArray with dims ('y','x') and coords 'x','y' (cell centers).
+            restrict_to_domain: If True, find the max only within the transposition domain polygon.
+
+        Returns:
+            shapely Point at the cell center of the max value.
+        """
+        arr = da.values.astype(float)
         x_coords = da["x"].values
-        dx = np.mean(np.diff(x_coords))
-        dy = np.mean(np.diff(y_coords))
-        transform = Affine.translation(x_coords[0] - dx / 2, y_coords[0] - dy / 2) * Affine.scale(
-            dx, dy
-        )
+        y_coords = da["y"].values
 
-        rows, cols = precip.shape
-        watershed_poly = self.watershed_gdf.geometry.iloc[0]
-        domain_poly = self.domain_gdf.geometry.iloc[0]
+        # Optionally mask to domain polygon
+        if restrict_to_domain and self.domain_gdf is not None and len(self.domain_gdf) > 0:
+            rows, cols = arr.shape
+            transform = _grid_transform_from_coords(x_coords, y_coords)
+            domain_poly = self.domain_gdf.geometry.unary_union
+            dom_mask = rasterize(
+                [(domain_poly, 1)],
+                out_shape=(rows, cols),
+                transform=transform,
+                fill=0,
+                dtype="uint8",
+            ).astype(bool)
+            # mask out-of-domain cells
+            arr = np.where(dom_mask, arr, np.nan)
 
-        watershed_mask = rasterize([(watershed_poly, 1)], out_shape=(rows, cols), transform=transform)
-        domain_mask = rasterize([(domain_poly, 1)], out_shape=(rows, cols), transform=transform)
+        # Guard: if all NaN after masking, fall back to global max
+        if np.isnan(arr).all():
+            arr = da.values
 
-        w_inds = np.argwhere(watershed_mask)
-        h_w, w_w = np.ptp(w_inds, axis=0) + 1
+        # Index of the maximum (ignoring NaNs)
+        flat_idx = np.nanargmax(arr)
+        i, j = np.unravel_index(flat_idx, arr.shape)   # i=row (y), j=col (x)
 
-        best_total = -np.inf
-        best_shift = (0, 0)
-
-        for i in range(rows - h_w):
-            for j in range(cols - w_w):
-                sub_d = domain_mask[i : i + h_w, j : j + w_w]
-                sub_p = precip[i : i + h_w, j : j + w_w]
-                w_mask = watershed_mask[
-                    w_inds[:, 0].min() : w_inds[:, 0].min() + h_w,
-                    w_inds[:, 1].min() : w_inds[:, 1].min() + w_w,
-                ]
-                if sub_d.shape != w_mask.shape or np.any((w_mask == 1) & (sub_d == 0)):
-                    continue
-                total = np.nansum(sub_p[w_mask == 1])
-                if total > best_total:
-                    best_total = total
-                    best_shift = (j - w_inds[:, 1].min(), i - w_inds[:, 0].min())
-
-        dx_m = best_shift[0] * dx
-        dy_m = best_shift[1] * dy
-        shifted_poly = translate(watershed_poly, xoff=dx_m, yoff=dy_m)
-        return shifted_poly.centroid
+        # Map to cell-center coordinates
+        x = float(x_coords[j])
+        y = float(y_coords[i])
+        return Point(x, y)
 
     def _save_outputs(self):
         """Saves NetCDF and Parquet output files to output folder."""
