@@ -1,15 +1,17 @@
 """
 Sampler module to generate storm center samples using various spatial distributions.
 
-Use :class:`Sampler` to generate storm center locations for a given spatial domain.
+Use :class:`ImportanceSampler` to generate storm center locations for a given spatial domain.
 
 This module handles:
-- Uniform random sampling within a polygon domain
+- Uniform random sampling within a polygon domain (default/baseline)
 - Gaussian copula-based importance sampling centered on a watershed
+- Univariate Normal (rho is not required)
+- Mixture 
 
 Typical usage example::
 
-    sampler = Sampler(
+    sampler = ImportanceSampler(
         distribution="gaussian_copula",
         params={"scale_sd_x": 0.2, "scale_sd_y": 0.2, "rho": 0.5},
         num_simulations=1000,

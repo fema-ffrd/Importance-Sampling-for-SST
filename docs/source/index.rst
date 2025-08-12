@@ -1,14 +1,13 @@
 SST Importance Sampling Documentation
 =====================================
 
-This documentation provides an overview of the modules used for sampling storm transposition centers
-and preprocessing precipitation data using the SST (Stochastic Storm Transposition) framework.
+This user guide provides a high level overview for using Importance Sampling of x and y coordinates for Stochastic Storm Transposition aimed at reducing the number of simulations required to achieve rare event scenarios. 
 
 It includes:
 
 - A preprocessing module for reading storm catalog data, computing storm centers, and saving structured output
-- A flexible sampling module for generating storm centers using uniform and Gaussian copula-based importance sampling
-- A storm depth processor for calculating average precipitation and return periods for transposed storms
+- Flexible sampling modules for generating storm centers using importance sampling (including vanilla and adaptive sampling strategies)
+- A storm depth processor for evaluating average precipitation and return periods for transposed storms
 
 .. toctree::
    :maxdepth: 1

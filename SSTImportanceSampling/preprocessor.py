@@ -183,8 +183,9 @@ class Preprocessor:
         cumulative = np.nansum(data_stack, axis=0)
 
         rows, cols = cumulative.shape
-        x_coords = ll_x + np.arange(cols) * cell_size
-        y_coords = ll_y + np.arange(rows) * cell_size
+        #Adjust to cell center instead of corner
+        x_coords = ll_x + (0.5+np.arange(cols)) * cell_size   
+        y_coords = ll_y + (0.5+np.arange(rows)) * cell_size  
 
         return xr.DataArray(
             cumulative,
