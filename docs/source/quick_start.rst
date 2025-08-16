@@ -18,7 +18,7 @@ Once installed, you can import the library:
 
 Example Data
 ------------
-Example datasets are provided in the ``example-input-data`` folder located at the root of the rerepository. These can be used to test and explore the functionality of the library. However, the catalog doesn't include a full set of storm events. 
+Example dataset is provided in the ``example-input-data`` folder located at the root of the repository. These can be used to test and explore the functionality of the library. However, the catalog doesn't include a full set of storm events. 
 
 
 Dependencies

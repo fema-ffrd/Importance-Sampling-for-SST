@@ -88,12 +88,13 @@ def main_nsi_to_hazus(nsi_gpkg, nsi_layer, output_csv_file_path):
 
     # Rename multiple columns using a dictionary
     column_mapping = {"bid": "id",
-                    'med_yr_blt': 'YEARBUILT', 
-                    'sqft': 'Area', 
+                    #'med_yr_blt': 'YEARBUILT', 
+                    #'sqft': 'Area',
+                    'found_type': 'FoundationType',
                     'val_struct': 'Cost',
                     'val_cont': "ContentCost",
                     'found_ht': 'FirstFloorHt',
-                    'num_story': 'NumStories',
+                    #'num_story': 'NumStories',
                     'occtype': 'Occ',
                     'x': 'Longitude',
                     'y': 'Latitude'
@@ -101,7 +102,9 @@ def main_nsi_to_hazus(nsi_gpkg, nsi_layer, output_csv_file_path):
     df.rename(columns=column_mapping, inplace=True)
     # I think I saw that Jill said num stories wasn't always accurate. She had a separate calculation that I did not apply here.
 
-    columns_to_keep = ['fd_id', 'Occ', 'NumStories', 'FoundationType', 'YEARBUILT', 'Area',"ContentCost", 'Cost', 'FirstFloorHt', 'Latitude', 'Longitude']
+    #columns_to_keep = ['fd_id', 'Occ', 'NumStories', 'FoundationType', 'YEARBUILT', 'Area',"ContentCost", 'Cost', 'FirstFloorHt', 'Latitude', 'Longitude']
+    columns_to_keep = ['fd_id', 'Occ', 'FoundationType',"ContentCost", 'Cost', 'FirstFloorHt', 'Latitude', 'Longitude']
+
     # Filter DataFrame to keep only the specified columns
     df = df[columns_to_keep]
 
@@ -122,6 +125,6 @@ df = pd.read_csv(input_csv_path)'''
 
 if __name__ == "__main__": 
     #currDir = os.path.dirname(os.path.realpath(__file__))
-    main_nsi_to_hazus(nsi_gpkg = '/workspaces/Importance-Sampling-for-SST/data/0_source/Denton/nsi_la.gpkg',
-                      nsi_layer = 'nsi_la',
-                      output_csv_file_path = '/workspaces/Importance-Sampling-for-SST/data/1_interim/Denton/WCLC_structures.csv')
+    main_nsi_to_hazus(nsi_gpkg = '/workspaces/Importance-Sampling-for-SST/data/0_source/Denton/purdue_si.gpkg',
+                      nsi_layer = 'SI_HUC08',
+                      output_csv_file_path = '/workspaces/Importance-Sampling-for-SST/data/1_interim/Denton/WCLC_structures_Purdue.csv')

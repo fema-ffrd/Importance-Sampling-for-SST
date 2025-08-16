@@ -21,7 +21,7 @@ Example
    trinity = Preprocessor(config_path = "data/0_source/Trinity/config.json", output_folder = "data/1_interim/Trinity")
    trinity.run()
 
-Typical Output
+Output Files
 --------------
 
 - Reprojected GeoPackages (watershed and domain)

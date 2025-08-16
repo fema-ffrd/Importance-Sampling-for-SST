@@ -1,21 +1,22 @@
 Sampling Storm Centers
 =======================
 
-This module provides flexible storm center sampling using:
+This module provides SST storm center sampling using:
 
-- Uniform distribution over the domain
-- Importance sampling using truncated bivariate normals
-- Gaussian copulas
-- Mixture models
+- Uniform distribution
+- Importance sampling through the following proposal distributions:
+   - truncated bivariate normals
+   - Gaussian copulas
+   - Mixture models
 
 Usage
 -----
 
 .. code-block:: python
 
-   from SSTImportanceSampling import Sampler
+   from SSTImportanceSampling import ImportanceSampler
 
-   sampler = Sampler(config_path="config.json")
+   sampler = ImportanceSampler(config_path="config.json")
    gdf_samples = sampler.sample(distribution="mixture")
 
 Key Parameters
