@@ -239,11 +239,14 @@ class Preprocessor:
 
     def _save_outputs(self):
         """Saves NetCDF and Parquet output files to output folder."""
-        # Add stacking to make a 3D DataArray
+        # storm_path dimension matches DSS file names
+        storm_names = list(self.cumulative_precip.keys())
         da_stack = xr.concat(
-            list(self.cumulative_precip.values()),
-            dim=pd.Index(self.cumulative_precip.keys(), name="storm_path")
+            [self.cumulative_precip[name] for name in storm_names],
+            dim=xr.DataArray(storm_names, dims="storm_path", name="storm_path")
         )
+        da_stack.name = "cumulative_precip"
+
         self.nc_path = os.path.join(self.output_folder, "cumulative_precip.nc")
         da_stack.to_netcdf(self.nc_path)
 
@@ -264,38 +267,47 @@ class Preprocessor:
             json.dump(self.config, f, indent=4)
 
     @classmethod
-    def load(cls, output_folder: Union[str, Path]) -> "Preprocessor":
+    def load(cls, config_path: Union[str, Path]) -> "Preprocessor":
         """
-        Load a preprocessed Preprocessor instance from disk using the config file.
+        Load a preprocessed Preprocessor instance from disk using a config file.
 
-        This method reads the `config.json` file located in the specified output folder,
-        loads the projected watershed and domain geometries, the cumulative precipitation
-        NetCDF dataset, and the storm center locations stored in a Parquet file.
+        This method reads a `config.json` file (either passed directly or 
+        found inside the given folder), parses the `preprocessed` section, 
+        and loads:
+
+        - The projected watershed and domain geometries (GeoPackage files)
+        - The cumulative precipitation dataset (NetCDF/DataArray)
+        - The storm center locations (Parquet file)
+
+        File paths are taken directly from the `config.json` entries. 
+        They may reside in any directory, not necessarily alongside 
+        the config file itself.
 
         Parameters
         ----------
-        output_folder : str or Path
-            Path to the folder containing the `config.json` file and all preprocessed outputs.
+        config_path : str or Path
+            Path to the `config.json` file or to a folder containing it.
 
         Returns
         -------
         Preprocessor
-            A `Preprocessor` instance with all data loaded and ready for use.
+            A `Preprocessor` instance with all referenced data loaded.
 
         Raises
         ------
         FileNotFoundError
-            If the `config.json` file is missing in the provided folder.
+            If the `config.json` file is missing at the provided location.
         ValueError
             If the `preprocessed` section is missing from the config file.
         """
-        output_folder = Path(output_folder)
-        config_path = output_folder / "config.json"
+        config_path = Path(config_path)
+        if config_path.is_dir():
+            config_path = config_path / "config.json"
 
         if not config_path.exists():
-            raise FileNotFoundError(f"No config.json found in {output_folder}")
+            raise FileNotFoundError(f"No config.json found at {config_path}")
 
-        obj = cls(config_path=config_path, output_folder=str(output_folder))
+        obj = cls(config_path=config_path, output_folder=str(config_path.parent))
 
         with open(config_path, "r") as f:
             obj.config = json.load(f)
