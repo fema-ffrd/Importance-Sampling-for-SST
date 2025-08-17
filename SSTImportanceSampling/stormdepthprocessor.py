@@ -55,15 +55,13 @@ class StormDepthProcessor:
         self.storm_centers = storm_centers.set_index("storm_path")
         self.arrival_rate = arrival_rate
 
-        self.x_coords = precip_cube.x.values
-        self.y_coords = precip_cube.y.values
-        self.dx = np.mean(np.diff(self.x_coords))
-        self.dy = np.mean(np.diff(self.y_coords))
+        self.x_coords = self.precip_cube.coords["x"].values
+        self.y_coords = self.precip_cube.coords["y"].values
+        self.dx = float(np.mean(np.diff(self.x_coords)))
+        self.dy = float(np.mean(np.diff(self.y_coords)))
 
-        self.transform = (
-            Affine.translation(self.x_coords[0], self.y_coords[0]) *
-            Affine.scale(self.dx, self.dy)
-        )
+        self.transform = Affine.translation(self.x_coords[0] - self.dx/2.0,
+                                            self.y_coords[0] - self.dy/2.0) * Affine.scale(self.dx, self.dy)
 
         self.watershed_mask = geometry_mask(
             geometries=[mapping(geom) for geom in watershed_gdf.geometry],
@@ -162,7 +160,7 @@ class StormDepthProcessor:
         if "rep" not in df_storms.columns:
             df_storms["rep"] = 1
 
-        storm_paths = self.precip_cube.storm_path.values
+        storm_paths = self.precip_cube.coords["storm_path"].values
         all_results = []
 
         for rep_id, df_rep in df_storms.groupby("rep"):
