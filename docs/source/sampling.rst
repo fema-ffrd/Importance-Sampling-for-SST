@@ -5,9 +5,9 @@ This module provides SST storm center sampling using:
 
 - Uniform distribution
 - Importance sampling through the following proposal distributions:
-   - truncated bivariate normals
+   - truncated univariate gaussian
    - Gaussian copulas
-   - Mixture models
+   - Mixture truncated gaussian
 
 Usage
 -----

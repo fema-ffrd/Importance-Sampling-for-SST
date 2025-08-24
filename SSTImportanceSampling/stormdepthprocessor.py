@@ -1,19 +1,19 @@
 """
-Module for computing watershed-averaged precipitation and return periods from
+Module for computing watershed-averaged precipitation and exceedance probability from
 sampled storm center transpositions
 
 This module provides the `StormDepthProcessor` class which handles:
 - Shifting storm footprints to new sampled storm center locations
 - Masking shifted precipitation arrays with watershed geometry
 - Computing watershed-averaged precipitation depths
-- Estimating exceedance probabilities and return periods using arrival rate theory
+- Estimating exceedance probabilities using arrival rate theory
 - Efficient parallelized processing with Joblib
 
 Typical usage example::
 
     processor = StormDepthProcessor(precip_cube, storm_centers, watershed_gdf)
     results_df = processor.shift_and_extract_precip(df_samples)
-    results_df = processor.add_return_periods(results_df)    
+    results_df = processor.add_exc_prb(results_df)    
 """
 
 import numpy as np
@@ -29,7 +29,7 @@ import geopandas as gpd
 
 class StormDepthProcessor:
     """
-    Computes watershed-averaged precipitation and return periods for sampled storm centers.
+    Computes watershed-averaged precipitation for sampled storm centers.
 
     This class shifts storm footprints over sampled storm centers, computes
     precipitation depth within a watershed, and derives return periods based on an arrival rate.
@@ -40,7 +40,6 @@ class StormDepthProcessor:
         precip_cube: xr.DataArray,
         storm_centers: pd.DataFrame,
         watershed_gdf: gpd.GeoDataFrame,
-        arrival_rate: float = 10,
     ) -> None:
         """
         Initialize the StormDepthProcessor.
@@ -49,11 +48,9 @@ class StormDepthProcessor:
             precip_cube (xr.DataArray): Aggregated precipitation with dims (storm_path, y, x).
             storm_centers (pd.DataFrame): DataFrame with columns ['storm_path', 'x', 'y'].
             watershed_gdf (gpd.GeoDataFrame): Watershed polygon in the same CRS as the cube.
-            arrival_rate (float): Average number of storm arrivals per year.
         """
         self.precip_cube = precip_cube
         self.storm_centers = storm_centers.set_index("storm_path")
-        self.arrival_rate = arrival_rate
 
         self.x_coords = self.precip_cube.coords["x"].values
         self.y_coords = self.precip_cube.coords["y"].values
@@ -122,19 +119,18 @@ class StormDepthProcessor:
             "precip_avg_mm": precip_avg,
         }
 
-    def add_return_periods(self, df: pd.DataFrame) -> pd.DataFrame:
+    def add_exc_prb(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Compute exceedance probabilities and return periods from precipitation depths.
+        Compute exceedance probabilities from precipitation depths.
 
         Args:
             df (pd.DataFrame): DataFrame with column 'precip_avg_mm'.
 
         Returns:
-            pd.DataFrame: DataFrame with added 'exc_prb' and 'return_period' columns.
+            pd.DataFrame: DataFrame with added 'exc_prb' column.
         """
         df_sorted = df.sort_values("precip_avg_mm", ascending=False).reset_index(drop=True).copy()
         df_sorted["exc_prb"] = df_sorted["weight"].cumsum()
-        df_sorted["return_period"] = 1 / (1 - np.exp(-self.arrival_rate * df_sorted["exc_prb"]))
         return df_sorted
 
     def shift_and_extract_precip(
@@ -181,7 +177,8 @@ class StormDepthProcessor:
                 continue
 
             df_result["rep"] = rep_id
-            df_result = self.add_return_periods(df_result)
+            if "weight" in df_result.columns:
+                df_result = self.add_exc_prb(df_result)
             all_results.append(df_result)
 
         return pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()

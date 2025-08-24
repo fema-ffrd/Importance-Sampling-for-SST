@@ -7,6 +7,7 @@ You can reuse a processed dataset using :meth:`Preprocessor.load`.
 
 This module handles:
 - Reading and projecting watershed/domain geometries
+- Computing basic spatial stats (bounds, centroid, ranges) for watershed & domain
 - Reading DSS storm files and computing cumulative precipitation
 - Computing optimal storm transposition centers
 - Saving preprocessed outputs
@@ -67,6 +68,7 @@ def _suppress_stdout_stderr():
             os.dup2(old_stdout, 1)
             os.dup2(old_stderr, 2)
 
+
 def _grid_transform_from_coords(x_coords: np.ndarray, y_coords: np.ndarray) -> Affine:
     """
     Build an Affine transform assuming x_coords/y_coords are cell centers on a regular grid.
@@ -75,6 +77,36 @@ def _grid_transform_from_coords(x_coords: np.ndarray, y_coords: np.ndarray) -> A
     dy = float(np.mean(np.diff(y_coords)))
     # shift to upper-left corner of the (0,0) cell
     return Affine.translation(x_coords[0] - dx / 2.0, y_coords[0] - dy / 2.0) * Affine.scale(dx, dy)
+
+
+# ---------- NEW: spatial stats helper ----------
+def get_sp_stats(gdf: gpd.GeoDataFrame) -> pd.Series:
+    """
+    Compute polygon spatial stats:
+      - bounds: minx, miny, maxx, maxy
+      - centroid: x, y (of unary union)
+      - ranges: range_x, range_y (extent width/height)
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+
+    Returns
+    -------
+    pandas.Series
+    """
+    minx, miny, maxx, maxy = gdf.total_bounds
+    cen = gdf.geometry.unary_union.centroid
+    return pd.Series({
+        "minx": float(minx),
+        "miny": float(miny),
+        "maxx": float(maxx),
+        "maxy": float(maxy),
+        "x": float(cen.x),
+        "y": float(cen.y),
+        "range_x": float(maxx - minx),
+        "range_y": float(maxy - miny),
+    })
 
 
 class Preprocessor:
@@ -89,6 +121,9 @@ class Preprocessor:
         domain_gdf: GeoDataFrame of projected domain.
         cumulative_precip: Dict of cumulative precipitation DataArrays.
         storm_centers: DataFrame of storm centers (name, x, y).
+        watershed_stats: Series of watershed spatial stats (bounds, centroid, ranges).
+        domain_stats: Series of domain spatial stats (bounds, centroid, ranges).
+        spatial_stats_path: Path to saved JSON with both stats.
     """
 
     def __init__(self, config_path: str, output_folder: str):
@@ -105,18 +140,25 @@ class Preprocessor:
         self.cumulative_precip: Dict[str, xr.DataArray] = {}
         self.storm_centers = pd.DataFrame(columns=["storm_path", "x", "y"])
 
+        # NEW: stats placeholders + output path
+        self.watershed_stats: pd.Series | None = None
+        self.domain_stats: pd.Series | None = None
+        self.spatial_stats_path: str | None = None
+
     def run(self):
         """
         Executes the full preprocessing workflow.
 
         This includes:
         - Reprojecting geometries
+        - Computing & saving watershed/domain spatial stats (JSON)
         - Reading DSS files and calculating cumulative precipitation
         - Identifying storm centers
         - Saving results to NetCDF, Parquet, and GeoPackage
         - Updating the config file with output paths
         """
         self._process_geometries()
+        self._compute_and_save_spatial_stats()   # NEW
         self._process_dss_files()
         self._save_outputs()
         self._update_config()
@@ -134,6 +176,27 @@ class Preprocessor:
 
         self.watershed_gdf.to_file(self.watershed_path_out, driver="GPKG")
         self.domain_gdf.to_file(self.domain_path_out, driver="GPKG")
+
+    # ---------- NEW: compute + save stats ----------
+    def _compute_and_save_spatial_stats(self) -> None:
+        """
+        Compute spatial stats for watershed and domain and save them to JSON.
+        The JSON contains:
+          {"watershed_stats": {...}, "domain_stats": {...}}
+        """
+        if self.watershed_gdf is None or self.domain_gdf is None:
+            raise ValueError("Geometries must be processed before computing spatial stats.")
+
+        self.watershed_stats = get_sp_stats(self.watershed_gdf)
+        self.domain_stats = get_sp_stats(self.domain_gdf)
+
+        stats = {
+            "watershed_stats": self.watershed_stats.to_dict(),
+            "domain_stats": self.domain_stats.to_dict(),
+        }
+        self.spatial_stats_path = os.path.join(self.output_folder, "spatial_stats.json")
+        with open(self.spatial_stats_path, "w") as f:
+            json.dump(stats, f, indent=2)
 
     def _process_dss_files(self):
         """Reads DSS files, computes cumulative precipitation, and determines storm center."""
@@ -183,9 +246,9 @@ class Preprocessor:
         cumulative = np.nansum(data_stack, axis=0)
 
         rows, cols = cumulative.shape
-        #Adjust to cell center instead of corner
-        x_coords = ll_x + (0.5+np.arange(cols)) * cell_size   
-        y_coords = ll_y + (0.5+np.arange(rows)) * cell_size  
+        # Adjust to cell center instead of corner
+        x_coords = ll_x + (0.5 + np.arange(cols)) * cell_size
+        y_coords = ll_y + (0.5 + np.arange(rows)) * cell_size
 
         return xr.DataArray(
             cumulative,
@@ -260,6 +323,8 @@ class Preprocessor:
             "domain_projected": self.domain_path_out,
             "cumulative_precip": self.nc_path,
             "storm_centers": self.storm_center_path,
+            # NEW: include spatial stats JSON
+            "spatial_stats": self.spatial_stats_path,
         }
 
         out_config_path = os.path.join(self.output_folder, "config.json")
@@ -271,16 +336,16 @@ class Preprocessor:
         """
         Load a preprocessed Preprocessor instance from disk using a config file.
 
-        This method reads a `config.json` file (either passed directly or 
-        found inside the given folder), parses the `preprocessed` section, 
+        This method reads a `config.json` file (either passed directly or
+        found inside the given folder), parses the `preprocessed` section,
         and loads:
 
         - The projected watershed and domain geometries (GeoPackage files)
         - The cumulative precipitation dataset (NetCDF/DataArray)
         - The storm center locations (Parquet file)
 
-        File paths are taken directly from the `config.json` entries. 
-        They may reside in any directory, not necessarily alongside 
+        File paths are taken directly from the `config.json` entries.
+        They may reside in any directory, not necessarily alongside
         the config file itself.
 
         Parameters
@@ -320,5 +385,14 @@ class Preprocessor:
         obj.domain_gdf = gpd.read_file(pre["domain_projected"])
         obj.cumulative_precip = xr.open_dataarray(pre["cumulative_precip"])
         obj.storm_centers = pd.read_parquet(pre["storm_centers"])
+
+        # Optionally load back stats if present
+        stats_path = pre.get("spatial_stats")
+        if stats_path and os.path.exists(stats_path):
+            with open(stats_path, "r") as f:
+                stats = json.load(f)
+            obj.watershed_stats = pd.Series(stats.get("watershed_stats", {}))
+            obj.domain_stats = pd.Series(stats.get("domain_stats", {}))
+            obj.spatial_stats_path = stats_path
 
         return obj
