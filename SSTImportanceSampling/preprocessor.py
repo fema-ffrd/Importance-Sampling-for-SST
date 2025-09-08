@@ -10,6 +10,7 @@ This module handles:
 - Computing basic spatial stats (bounds, centroid, ranges) for watershed & domain
 - Reading DSS storm files and computing cumulative precipitation
 - Computing optimal storm transposition centers
+- Computing the valid centroid (translation-safe) region and saving it as GPKG
 - Saving preprocessed outputs
 
 See the usage guide for a full example.
@@ -27,14 +28,14 @@ import geopandas as gpd
 import xarray as xr
 import pandas as pd
 import numpy as np
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString
+from shapely.ops import unary_union
 from shapely.affinity import translate
 from affine import Affine
 from rasterio.features import rasterize
 from pyproj import CRS
 from tqdm import tqdm
 from hecdss import HecDss
-from affine import Affine
 
 SHG_WKT = (
     'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",'
@@ -79,7 +80,7 @@ def _grid_transform_from_coords(x_coords: np.ndarray, y_coords: np.ndarray) -> A
     return Affine.translation(x_coords[0] - dx / 2.0, y_coords[0] - dy / 2.0) * Affine.scale(dx, dy)
 
 
-# ---------- NEW: spatial stats helper ----------
+# ---------- spatial stats helper ----------
 def get_sp_stats(gdf: gpd.GeoDataFrame) -> pd.Series:
     """
     Compute polygon spatial stats:
@@ -120,10 +121,12 @@ class Preprocessor:
         watershed_gdf: GeoDataFrame of projected watershed.
         domain_gdf: GeoDataFrame of projected domain.
         cumulative_precip: Dict of cumulative precipitation DataArrays.
-        storm_centers: DataFrame of storm centers (name, x, y).
+        storm_centers: DataFrame of storm centers (name, x, y, pmax_mm).
         watershed_stats: Series of watershed spatial stats (bounds, centroid, ranges).
         domain_stats: Series of domain spatial stats (bounds, centroid, ranges).
+        valid_centroid_region_gdf: GeoDataFrame of feasible centroid polygon.
         spatial_stats_path: Path to saved JSON with both stats.
+        valid_centroid_region_path: Path to saved GPKG with feasible centroid polygon.
     """
 
     def __init__(self, config_path: str, output_folder: str):
@@ -135,15 +138,24 @@ class Preprocessor:
         with open(config_path, "r") as f:
             self.config = json.load(f)
 
-        self.watershed_gdf = None
-        self.domain_gdf = None
+        self.watershed_gdf: gpd.GeoDataFrame | None = None
+        self.domain_gdf: gpd.GeoDataFrame | None = None
         self.cumulative_precip: Dict[str, xr.DataArray] = {}
-        self.storm_centers = pd.DataFrame(columns=["storm_path", "x", "y"])
+        self.storm_centers = pd.DataFrame(columns=["storm_path", "x", "y", "pmax_mm"])
 
-        # NEW: stats placeholders + output path
+        # stats placeholders + output path
         self.watershed_stats: pd.Series | None = None
         self.domain_stats: pd.Series | None = None
         self.spatial_stats_path: str | None = None
+
+        # valid centroid region placeholders
+        self.valid_centroid_region_gdf: gpd.GeoDataFrame | None = None
+        self.valid_centroid_region_path: str | None = None
+
+        # optional knobs (can also be injected via config["preprocess_opts"])
+        opts = self.config.get("preprocess_opts", {})
+        self.vcr_max_seg_len: float = float(opts.get("valid_region_max_seg_len", 100.0))
+        self.vcr_simplify_tol: float = float(opts.get("valid_region_simplify_tol", 0.0))
 
     def run(self):
         """
@@ -152,13 +164,18 @@ class Preprocessor:
         This includes:
         - Reprojecting geometries
         - Computing & saving watershed/domain spatial stats (JSON)
+        - Computing valid centroid (translation-safe) region and saving to GPKG
         - Reading DSS files and calculating cumulative precipitation
         - Identifying storm centers
-        - Saving results to NetCDF, Parquet, and GeoPackage
+        - Saving results to NetCDF and Parquet
         - Updating the config file with output paths
         """
         self._process_geometries()
-        self._compute_and_save_spatial_stats()   # NEW
+        self._compute_and_save_spatial_stats()
+        self._compute_and_save_valid_centroid_region(  # NEW
+            max_seg_len=self.vcr_max_seg_len,
+            simplify_tol=self.vcr_simplify_tol
+        )
         self._process_dss_files()
         self._save_outputs()
         self._update_config()
@@ -177,7 +194,6 @@ class Preprocessor:
         self.watershed_gdf.to_file(self.watershed_path_out, driver="GPKG")
         self.domain_gdf.to_file(self.domain_path_out, driver="GPKG")
 
-    # ---------- NEW: compute + save stats ----------
     def _compute_and_save_spatial_stats(self) -> None:
         """
         Compute spatial stats for watershed and domain and save them to JSON.
@@ -197,6 +213,100 @@ class Preprocessor:
         self.spatial_stats_path = os.path.join(self.output_folder, "spatial_stats.json")
         with open(self.spatial_stats_path, "w") as f:
             json.dump(stats, f, indent=2)
+
+    # ---------- NEW: Valid centroid region ----------
+    @staticmethod
+    def _valid_centroid_region(domain_gdf: gpd.GeoDataFrame,
+                               watershed_gdf: gpd.GeoDataFrame,
+                               max_seg_len: float = 100.0,
+                               simplify_tol: float = 0.0) -> gpd.GeoDataFrame:
+        """
+        Compute the polygon of all centroid positions s such that translating the watershed
+        by (s - c) keeps it entirely inside the domain.
+
+        Parameters
+        ----------
+        domain_gdf : GeoDataFrame
+            Domain polygon(s).
+        watershed_gdf : GeoDataFrame
+            Watershed polygon(s).
+        max_seg_len : float, default 100.0
+            Densify the watershed boundary so no segment exceeds this length (CRS units).
+            Smaller values give a closer approximation (approaches exact), but slower.
+            Use 0 to skip densification.
+        simplify_tol : float, default 0.0
+            If > 0, simplify the domain before intersections to speed up (CRS units).
+
+        Returns
+        -------
+        GeoDataFrame
+            Single-row GeoDataFrame with only a geometry column (may be empty),
+            CRS taken from inputs.
+        """
+        # unify geometries
+        D = unary_union(domain_gdf.geometry).buffer(0)
+        B = unary_union(watershed_gdf.geometry).buffer(0)
+        if simplify_tol > 0:
+            D = D.simplify(simplify_tol, preserve_topology=True)
+        c = B.centroid
+        cx, cy = c.x, c.y
+
+        def _densify_ring(coords):
+            if max_seg_len <= 0:
+                # yield all given coords as-is (closed ring expected)
+                yield from coords
+                return
+            coords = list(coords)
+            for (x1, y1), (x2, y2) in zip(coords[:-1], coords[1:]):
+                seg = LineString([(x1, y1), (x2, y2)])
+                n = max(1, int(np.ceil(seg.length / max_seg_len)))
+                for t in np.linspace(0.0, 1.0, n, endpoint=False):
+                    yield (x1 + t*(x2 - x1), y1 + t*(y2 - y1))
+            yield coords[-1]
+
+        def _boundary_points(geom):
+            if geom.geom_type == "Polygon":
+                yield from _densify_ring(geom.exterior.coords)
+                for ring in geom.interiors:
+                    yield from _densify_ring(ring.coords)
+            elif geom.geom_type == "MultiPolygon":
+                for g in geom.geoms:
+                    yield from _boundary_points(g)
+            else:
+                raise ValueError(f"Unexpected geometry type: {geom.geom_type}")
+
+        feasible = D
+        seen = set()
+        for px, py in _boundary_points(B):
+            dx, dy = -(px - cx), -(py - cy)
+            key = (round(dx, 9), round(dy, 9))
+            if key in seen:
+                continue
+            seen.add(key)
+            feasible = feasible.intersection(translate(D, xoff=dx, yoff=dy))
+            if feasible.is_empty:
+                break
+
+        return gpd.GeoDataFrame(geometry=[feasible],
+                                crs=domain_gdf.crs or watershed_gdf.crs)
+
+    def _compute_and_save_valid_centroid_region(self,
+                                                max_seg_len: float = 100.0,
+                                                simplify_tol: float = 0.0) -> None:
+        """
+        Compute the valid centroid (translation-safe) region polygon and save it to GPKG.
+        """
+        if self.watershed_gdf is None or self.domain_gdf is None:
+            raise ValueError("Geometries must be processed before computing valid centroid region.")
+
+        self.valid_centroid_region_gdf = self._valid_centroid_region(
+            self.domain_gdf, self.watershed_gdf,
+            max_seg_len=max_seg_len,
+            simplify_tol=simplify_tol
+        )
+        self.valid_centroid_region_path = os.path.join(self.output_folder, "valid_centroid_region.gpkg")
+        # Save as a simple geometry-only layer
+        self.valid_centroid_region_gdf.to_file(self.valid_centroid_region_path, driver="GPKG")
 
     def _process_dss_files(self):
         """Reads DSS files, computes cumulative precipitation, and determines storm center."""
@@ -302,7 +412,6 @@ class Preprocessor:
 
     def _save_outputs(self):
         """Saves NetCDF and Parquet output files to output folder."""
-        # storm_path dimension matches DSS file names
         storm_names = list(self.cumulative_precip.keys())
         da_stack = xr.concat(
             [self.cumulative_precip[name] for name in storm_names],
@@ -323,8 +432,8 @@ class Preprocessor:
             "domain_projected": self.domain_path_out,
             "cumulative_precip": self.nc_path,
             "storm_centers": self.storm_center_path,
-            # NEW: include spatial stats JSON
             "spatial_stats": self.spatial_stats_path,
+            "valid_centroid_region": self.valid_centroid_region_path,  # NEW
         }
 
         out_config_path = os.path.join(self.output_folder, "config.json")
@@ -343,6 +452,8 @@ class Preprocessor:
         - The projected watershed and domain geometries (GeoPackage files)
         - The cumulative precipitation dataset (NetCDF/DataArray)
         - The storm center locations (Parquet file)
+        - The spatial stats (JSON)
+        - The valid centroid region (GPKG)
 
         File paths are taken directly from the `config.json` entries.
         They may reside in any directory, not necessarily alongside
@@ -386,7 +497,7 @@ class Preprocessor:
         obj.cumulative_precip = xr.open_dataarray(pre["cumulative_precip"])
         obj.storm_centers = pd.read_parquet(pre["storm_centers"])
 
-        # Optionally load back stats if present
+        # Load stats if present
         stats_path = pre.get("spatial_stats")
         if stats_path and os.path.exists(stats_path):
             with open(stats_path, "r") as f:
@@ -394,5 +505,11 @@ class Preprocessor:
             obj.watershed_stats = pd.Series(stats.get("watershed_stats", {}))
             obj.domain_stats = pd.Series(stats.get("domain_stats", {}))
             obj.spatial_stats_path = stats_path
+
+        # Load valid centroid region if present
+        vcr_path = pre.get("valid_centroid_region")
+        if vcr_path and os.path.exists(vcr_path):
+            obj.valid_centroid_region_gdf = gpd.read_file(vcr_path)
+            obj.valid_centroid_region_path = vcr_path
 
         return obj
