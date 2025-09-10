@@ -207,6 +207,7 @@ class ImportanceSampler:
         # choose storms WITH replacement for each rep
         all_out = []
         for rep in range(1, self.num_rep + 1):
+            np.random.seed(self.seed)   #adding a new seed for each rep here. check later also need to store seeds
             chosen = storm_centers.sample(n=self.num_simulations, replace=True).reset_index(drop=True)
             ox = chosen["x"].to_numpy(dtype=float)
             oy = chosen["y"].to_numpy(dtype=float)

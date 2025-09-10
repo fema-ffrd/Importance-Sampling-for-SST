@@ -105,9 +105,12 @@ class StormDepthProcessor:
 
     def _add_exc_prb(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        valid = df["precip_avg_mm"].notna()
-        d = df.loc[valid].sort_values("precip_avg_mm", ascending=False)
-        d["exc_prb"] = d["weight"].cumsum()
         df["exc_prb"] = np.nan
-        df.loc[d.index, "exc_prb"] = d["exc_prb"]
+        for rep_val, group in df.groupby("rep", dropna=False):
+            valid = group["precip_avg_mm"].notna()
+            d = group.loc[valid].sort_values("precip_avg_mm", ascending=False).copy()
+            # Cumulative sum of weights within this rep
+            d["exc_prb"] = d["weight"].cumsum()
+            # Put the values back into the original frame
+            df.loc[d.index, "exc_prb"] = d["exc_prb"]
         return df
