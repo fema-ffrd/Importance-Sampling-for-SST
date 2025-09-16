@@ -1,368 +1,317 @@
-from typing import Literal, Optional
+from typing import Literal, Dict, Tuple
 import numpy as np
 import pandas as pd
+import xarray as xr
 import geopandas as gpd
-from shapely.ops import unary_union
-from scipy.stats import uniform, truncnorm, norm, multivariate_normal
+from scipy.stats import truncnorm, norm
 
 class ImportanceSampler:
     """
-    One-sample-at-a-time validity:
-      - For each selected storm (WITH replacement), keep drawing (newx,newy)
-        from the chosen distribution until:
-          (1) point is inside domain polygon, and
-          (2) shifted watershed centroid (cx - dx, cy - dy) lies in valid_centroid_region_gdf.
-      - Then compute deltas & weights.
+    Discrete storm-center sampler over precomputed valid masks.
+
+    Per realization:
+      1) Sample a storm J uniformly among storms with ≥1 valid cell.
+      2) Sample a valid cell P from that storm:
+         - Uniform: P ~ Uniform(V_J)
+         - Importance: P ~ Categorical ∝ q_base(P), restricted to V_J
+      3) Compute deltas and importance weights:
+         - Uniform: target == proposal → weights normalized to 1/N
+         - Importance: w_raw = Z_J / (|V_J| * q_base(P)), then self-normalize
     """
 
     def __init__(
         self,
-        distribution: Literal["uniform", "gaussian_copula", "truncated_gaussian", "mixture_trunc_gauss"],
+        distribution: Literal["uniform", "truncated_gaussian", "gaussian_copula", "mixture_trunc_gauss"],
         params: dict,
         num_simulations: int,
-        num_rep: int = 1,
-        seed: Optional[int] = None,
-        include_boundary: bool = False,
-        max_iter_per_point: int = 10000,
+        num_realizations: int = 1,
+        eps_floor: float = 1e-300,     # floor to keep q_base strictly positive
+        use_alias: bool = False,       # placeholder flag; current impl uses numpy.choice
     ):
         self.distribution = distribution
-        self.params = params
-        self.num_simulations = num_simulations
-        self.num_rep = num_rep
-        self.seed = seed
-        self.include_boundary = include_boundary
-        self.max_iter_per_point = max_iter_per_point
+        self.params = dict(params or {})
+        self.num_simulations = int(num_simulations)
+        self.num_realizations = int(num_realizations)
+        self.eps_floor = float(eps_floor)
+        self.use_alias = bool(use_alias)
         self._validate_params()
 
-    # ---------------- validation (unchanged logic) ----------------
+    # ------------- validation -------------
     def _validate_params(self) -> None:
         d = self.distribution
         P = self.params
 
         def need(keys):
-            missing = set(keys) - P.keys()
+            missing = set(keys) - set(P.keys())
             if missing:
                 raise ValueError(f"Missing required parameters for '{d}': {missing}")
 
         def pos(name):
-            v = float(P[name])
+            v = float(P[name]); 
             if not np.isfinite(v) or v <= 0:
-                raise ValueError(f"{name} must be a finite > 0 float.")
+                raise ValueError(f"{name} must be finite and > 0.")
             return v
 
         if d == "uniform":
             return
 
-        elif d == "gaussian_copula":
-            need({"mu_x","mu_y","sd_x","sd_y","rho"})
+        if d == "truncated_gaussian":
+            need({"sd_x", "sd_y"})
+            pos("sd_x"); pos("sd_y")
+            return
+
+        if d == "gaussian_copula":
+            need({"sd_x", "sd_y", "rho"})
             pos("sd_x"); pos("sd_y")
             rho = float(P["rho"])
-            if not np.isfinite(rho) or not (-0.999 < rho < 0.999):
+            if not (-0.999 < rho < 0.999):
                 raise ValueError("rho must be in (-0.999, 0.999).")
             return
 
-        elif d == "truncated_gaussian":
-            need({"mu_x","mu_y","sd_x","sd_y"})
-            pos("sd_x"); pos("sd_y")
-            return
-
-        elif d == "mixture_trunc_gauss":
+        if d == "mixture_trunc_gauss":
             need({"sd_x_narrow","sd_y_narrow","sd_x_wide","sd_y_wide","mix"})
             pos("sd_x_narrow"); pos("sd_y_narrow"); pos("sd_x_wide"); pos("sd_y_wide")
             mix = float(P["mix"])
-            if not np.isfinite(mix) or not (0.0 < mix < 1.0):
+            if not (0.0 < mix < 1.0):
                 raise ValueError("mix must be in (0,1).")
-
-            has_common = {"mu_x","mu_y"} <= P.keys()
-            has_narrow = {"mu_x_narrow","mu_y_narrow"} <= P.keys()
-            has_wide   = {"mu_x_wide","mu_y_wide"}     <= P.keys()
-            if not ((has_narrow or has_common) and (has_wide or has_common)):
-                raise ValueError(
-                    "Provide (mu_x_narrow, mu_y_narrow) and (mu_x_wide, mu_y_wide), "
-                    "or supply common (mu_x, mu_y)."
-                )
             for key in ("rho","rho_narrow","rho_wide"):
                 if key in P:
                     r = float(P[key])
-                    if not np.isfinite(r) or not (-0.999 < r < 0.999):
+                    if not (-0.999 < r < 0.999):
                         raise ValueError(f"{key} must be in (-0.999, 0.999).")
             return
 
-        else:
-            raise ValueError(f"Unsupported distribution: {d}")
+        raise ValueError(f"Unsupported distribution: {d}")
 
-    # ---------------- helpers ----------------
+    # ------------- internal: build q_base grid -------------
     @staticmethod
-    def _points_in(poly, xx, yy, include_boundary=False, crs=None):
-        pts = gpd.GeoSeries(gpd.points_from_xy(xx, yy), crs=crs)
-        return (pts.within(poly) | pts.touches(poly)) if include_boundary else pts.within(poly)
-
-    def _propose_uniform(self, bounds, size):
+    def _truncnorm_objs(bounds: Tuple[float,float,float,float], mx, my, sx, sy):
         xmin, ymin, xmax, ymax = bounds
-        x = uniform(xmin, xmax - xmin).rvs(size)
-        y = uniform(ymin, ymax - ymin).rvs(size)
-        return x, y
-
-    def _propose_trunc_gauss_setup(self, bounds):
-        P = self.params
-        xmin, ymin, xmax, ymax = bounds
-        mx, my = float(P["mu_x"]), float(P["mu_y"])
-        sx, sy = float(P["sd_x"]), float(P["sd_y"])
         ax, bx = (xmin - mx)/sx, (xmax - mx)/sx
         ay, by = (ymin - my)/sy, (ymax - my)/sy
         return truncnorm(ax, bx, loc=mx, scale=sx), truncnorm(ay, by, loc=my, scale=sy)
 
-    def _propose_trunc_gauss(self, tx, ty, size):
-        return tx.rvs(size), ty.rvs(size)
+    def _qbase_trunc_gauss(self, xs: np.ndarray, ys: np.ndarray, bounds, mx, my, sx, sy) -> np.ndarray:
+        tx, ty = self._truncnorm_objs(bounds, mx, my, sx, sy)
+        fx = np.maximum(tx.pdf(xs), self.eps_floor)           # (nx,)
+        fy = np.maximum(ty.pdf(ys), self.eps_floor)           # (ny,)
+        return fy[:, None] * fx[None, :]                      # (ny, nx)
 
-    def _propose_gauss_copula(self, tx, ty, rho, size):
-        cov = np.array([[1.0, rho],[rho, 1.0]])
-        L = np.linalg.cholesky(cov)
-        eps = np.finfo(float).eps
-        u = np.clip(np.random.uniform(size=(size,2)), eps, 1-eps)
-        z = norm.ppf(u); zc = z @ L.T; uc = norm.cdf(zc)
-        x = tx.ppf(np.clip(uc[:,0], eps, 1-eps))
-        y = ty.ppf(np.clip(uc[:,1], eps, 1-eps))
-        return x, y
+    def _qbase_gaussian_copula(self, xs, ys, bounds, mx, my, sx, sy, rho) -> np.ndarray:
+        tx, ty = self._truncnorm_objs(bounds, mx, my, sx, sy)
+        fx = np.maximum(tx.pdf(xs), self.eps_floor)
+        fy = np.maximum(ty.pdf(ys), self.eps_floor)
+        Fx = np.clip(tx.cdf(xs), 1e-15, 1-1e-15)
+        Fy = np.clip(ty.cdf(ys), 1e-15, 1-1e-15)
+        zx = norm.ppf(Fx)                                     # (nx,)
+        zy = norm.ppf(Fy)                                     # (ny,)
 
-    def _propose_mixture_setup(self, bounds):
-        P = self.params
-        xmin, ymin, xmax, ymax = bounds
-        mxn = float(P.get("mu_x_narrow", P.get("mu_x"))); myn = float(P.get("mu_y_narrow", P.get("mu_y")))
-        mxw = float(P.get("mu_x_wide",   P.get("mu_x"))); myw = float(P.get("mu_y_wide",   P.get("mu_y")))
-        sxn, syn = float(P["sd_x_narrow"]), float(P["sd_y_narrow"])
-        sxw, syw = float(P["sd_x_wide"]),   float(P["sd_y_wide"])
-        axn, bxn = (xmin - mxn)/sxn, (xmax - mxn)/sxn
-        ayn, byn = (ymin - myn)/syn, (ymax - myn)/syn
-        axw, bxw = (xmin - mxw)/sxw, (xmax - mxw)/sxw
-        ayw, byw = (ymin - myw)/syw, (ymax - myw)/syw
-        tx_n = truncnorm(axn, bxn, loc=mxn, scale=sxn)
-        ty_n = truncnorm(ayn, byn, loc=myn, scale=syn)
-        tx_w = truncnorm(axw, bxw, loc=mxw, scale=sxw)
-        ty_w = truncnorm(ayw, byw, loc=myw, scale=syw)
-        rho_n = float(P.get("rho", P.get("rho_narrow", 0.0)))
-        rho_w = float(P.get("rho", P.get("rho_wide",   0.0)))
-        cov_n = np.array([[1.0, rho_n],[rho_n, 1.0]]); L_n = np.linalg.cholesky(cov_n)
-        cov_w = np.array([[1.0, rho_w],[rho_w, 1.0]]); L_w = np.linalg.cholesky(cov_w)
+        one_minus_r2 = 1.0 - rho*rho
+        const = -0.5*np.log1p(-rho*rho)
+        Zx = zx[None, :]                                      # (1,nx)
+        Zy = zy[:, None]                                      # (ny,1)
+        A = 0.5*(Zx**2 + Zy**2)
+        B = 0.5*((Zx**2 - 2.0*rho*Zx*Zy + Zy**2) / one_minus_r2)
+        qcop = np.exp(const + (A - B))
+        q2d = qcop * (fy[:, None] * fx[None, :])
+        return np.maximum(q2d, self.eps_floor)
+
+    def _qbase_mixture(self, xs, ys, bounds, P) -> np.ndarray:
         mix = float(P["mix"])
-        return (tx_n, ty_n, L_n, tx_w, ty_w, L_w, mix)
+        mxn = float(P.get("mu_x_narrow", P["mu_x"])); myn = float(P.get("mu_y_narrow", P["mu_y"]))
+        mxw = float(P.get("mu_x_wide",   P["mu_x"])); myw = float(P.get("mu_y_wide",   P["mu_y"]))
+        sxn = float(P["sd_x_narrow"]); syn = float(P["sd_y_narrow"])
+        sxw = float(P["sd_x_wide"]);   syw = float(P["sd_y_wide"])
+        rho_n = float(P.get("rho_narrow", P.get("rho", 0.0)))
+        rho_w = float(P.get("rho_wide",  P.get("rho", 0.0)))
+        q_n = self._qbase_gaussian_copula(xs, ys, bounds, mxn, myn, sxn, syn, rho_n)
+        q_w = self._qbase_gaussian_copula(xs, ys, bounds, mxw, myw, sxw, syw, rho_w)
+        return np.maximum(mix * q_n + (1.0 - mix) * q_w, self.eps_floor)
 
-    def _propose_mixture(self, setup, size):
-        tx_n, ty_n, L_n, tx_w, ty_w, L_w, mix = setup
-        eps = np.finfo(float).eps
-        choose_n = (np.random.rand(size) < mix)
-        x = np.empty(size); y = np.empty(size)
-        if choose_n.any():
-            u = np.clip(np.random.uniform(size=(choose_n.sum(),2)), eps, 1-eps)
-            z = norm.ppf(u); zc = z @ L_n.T; uc = norm.cdf(zc)
-            x[choose_n] = tx_n.ppf(np.clip(uc[:,0], eps, 1-eps))
-            y[choose_n] = ty_n.ppf(np.clip(uc[:,1], eps, 1-eps))
-        if (~choose_n).any():
-            u = np.clip(np.random.uniform(size=((~choose_n).sum(),2)), eps, 1-eps)
-            z = norm.ppf(u); zc = z @ L_w.T; uc = norm.cdf(zc)
-            x[~choose_n] = tx_w.ppf(np.clip(uc[:,0], eps, 1-eps))
-            y[~choose_n] = ty_w.ppf(np.clip(uc[:,1], eps, 1-eps))
-        return x, y
+    def _build_q_base(self, mask_da: xr.DataArray, watershed_stats: Dict[str,float]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        xs = mask_da["x"].values
+        ys = mask_da["y"].values
+        bounds = (float(xs[0]), float(ys[0]), float(xs[-1]), float(ys[-1]))
 
-    # ---------------- Public API ----------------
+        # default mu to watershed centroid if not provided
+        P = dict(self.params)
+        if "mu_x" not in P or "mu_y" not in P:
+            if watershed_stats is None or ("x" not in watershed_stats or "y" not in watershed_stats):
+                raise ValueError("mu_x/mu_y not provided and watershed centroid unavailable.")
+            P.setdefault("mu_x", float(watershed_stats["x"]))
+            P.setdefault("mu_y", float(watershed_stats["y"]))
+
+        if self.distribution == "uniform":
+            q2d = np.ones((len(ys), len(xs)), dtype=float)
+        elif self.distribution == "truncated_gaussian":
+            q2d = self._qbase_trunc_gauss(xs, ys, bounds,
+                                          mx=float(P["mu_x"]), my=float(P["mu_y"]),
+                                          sx=float(P["sd_x"]), sy=float(P["sd_y"]))
+        elif self.distribution == "gaussian_copula":
+            q2d = self._qbase_gaussian_copula(xs, ys, bounds,
+                                              mx=float(P["mu_x"]), my=float(P["mu_y"]),
+                                              sx=float(P["sd_x"]), sy=float(P["sd_y"]),
+                                              rho=float(P["rho"]))
+        elif self.distribution == "mixture_trunc_gauss":
+            q2d = self._qbase_mixture(xs, ys, bounds, P)
+        else:
+            raise RuntimeError("unreachable")
+
+        return xs, ys, q2d
+
+    # ------------- internal: prepare valid sets -------------
+    @staticmethod
+    def _flatten_indices(mask2d: np.ndarray) -> np.ndarray:
+        return np.flatnonzero(mask2d.astype(bool).ravel())
+
+    def _prepare_catalog(self, data):
+        """
+        Returns:
+          mask_da:   DataArray (storm,y,x)
+          centers_df: filtered storm_centers
+          per_storm: dict[name] -> {'flat_idx','count','qb_vals','Z'}
+          xs, ys:    grid centers
+          qb_flat:   q_base flattened (rows*cols,)
+        """
+        if not hasattr(data, "valid_mask_nc"):
+            raise ValueError("`data` must have attribute `valid_mask_nc` (xarray DataArray).")
+        if not hasattr(data, "storm_centers"):
+            raise ValueError("`data` must have attribute `storm_centers` (DataFrame).")
+
+        mask_da: xr.DataArray = data.valid_mask_nc
+        if not {"storm","y","x"} <= set(mask_da.dims):
+            raise ValueError("valid_mask_nc must have dims ('storm','y','x').")
+
+        watershed_stats = getattr(data, "watershed_stats", None)
+        xs, ys, q2d = self._build_q_base(mask_da, watershed_stats)
+        qb_flat = q2d.ravel(order="C")
+
+        storm_names_mask = mask_da["storm"].values.tolist()
+        centers_df: pd.DataFrame = data.storm_centers.copy()
+        need_cols = {"storm_path","x","y"}
+        if not need_cols <= set(centers_df.columns):
+            raise ValueError("storm_centers must contain columns ['storm_path','x','y'].")
+
+        centers_df = centers_df[centers_df["storm_path"].astype(str).isin(storm_names_mask)].copy()
+        if centers_df.empty:
+            raise ValueError("No overlapping storms between valid_mask_nc and storm_centers.")
+        centers_df["storm_path"] = centers_df["storm_path"].astype(str)
+
+        per_storm = {}
+        rows = mask_da.sizes["y"]; cols = mask_da.sizes["x"]
+        for name in centers_df["storm_path"].unique():
+            vm2d = mask_da.sel(storm=name).values.astype(bool)
+            flat_idx = self._flatten_indices(vm2d)
+            if flat_idx.size == 0:
+                continue
+            qb_vals = qb_flat[flat_idx]
+            Z = float(qb_vals.sum()) if self.distribution != "uniform" else float(flat_idx.size)
+            per_storm[name] = {
+                "flat_idx": flat_idx,
+                "count": flat_idx.size,
+                "qb_vals": qb_vals,
+                "Z": Z,
+            }
+
+        centers_df = centers_df[centers_df["storm_path"].isin(per_storm.keys())].reset_index(drop=True)
+        if centers_df.empty:
+            raise ValueError("All storms have empty valid sets; cannot sample.")
+
+        return mask_da, centers_df, per_storm, xs, ys, qb_flat
+
+    # ------------- public API -------------
     def sample(self, data) -> pd.DataFrame:
         """
-        Expects `data` to have:
-          - domain_gdf
-          - valid_centroid_region_gdf
-          - storm_centers (cols: storm_path,x,y)
-          - watershed_stats with keys 'x','y' (centroid)
-        Returns columns:
-          ['rep','event_id','storm_path','x','y','newx','newy','delx','dely','weight']
+        Inputs expected on `data`:
+          - valid_mask_nc : xarray.DataArray (storm,y,x) with coords 'storm','x','y', values in {0,1}
+          - storm_centers : DataFrame with ['storm_path','x','y']
+          - watershed_stats : dict-like with ['x','y'] (centroid) used for default mu
+
+        Returns DataFrame columns:
+          ['realization','realization_seed','event_id','storm_path','x','y','newx','newy','delx','dely','weight_raw','weight']
         """
-        if self.seed is not None:
-            np.random.seed(self.seed)
+        mask_da, centers_df, per_storm, xs, ys, qb_flat = self._prepare_catalog(data)
 
-        domain_gdf: gpd.GeoDataFrame = data.domain_gdf
-        valid_centroid_region_gdf: gpd.GeoDataFrame = data.valid_centroid_region_gdf
-        storm_centers: pd.DataFrame = data.storm_centers
+        storms = centers_df["storm_path"].values.astype(str)
+        S = len(storms)
+        s2xy = dict(zip(storms, zip(centers_df["x"].astype(float), centers_df["y"].astype(float))))
 
-        # watershed centroid
-        if hasattr(data, "watershed_stats") and all(k in data.watershed_stats for k in ("x","y")):
-            cx = float(data.watershed_stats["x"]); cy = float(data.watershed_stats["y"])
-        else:
-            # fallback to polygon centroid
-            c = unary_union(domain_gdf.geometry).centroid
-            cx, cy = float(c.x), float(c.y)
+        all_frames = []
 
-        for ccol in ("storm_path","x","y"):
-            if ccol not in storm_centers.columns:
-                raise ValueError(f"`storm_centers` must contain column '{ccol}'")
+        # Create independent seeds for each realization and keep them
+        # (64-bit integers generated from system entropy)
+        seed_seq = np.random.SeedSequence()
+        child_states = seed_seq.spawn(self.num_realizations)
+        # Derive a single 64-bit seed value to store
+        real_seeds = [int(ss.generate_state(1, dtype=np.uint64)[0]) for ss in child_states]
 
-        # geometry setup
-        D = unary_union(domain_gdf.geometry).buffer(0)
-        V = unary_union(valid_centroid_region_gdf.geometry).buffer(0)
-        if D.is_empty: raise ValueError("Domain geometry is empty.")
-        if V.is_empty: raise ValueError("Valid centroid region is empty.")
-
-        bounds = tuple(domain_gdf.total_bounds)
-        area = float(D.area)
-        eps = np.finfo(float).eps
-
-        # choose storms WITH replacement for each rep
-        all_out = []
-        for rep in range(1, self.num_rep + 1):
-            np.random.seed(self.seed)   #adding a new seed for each rep here. check later also need to store seeds
-            chosen = storm_centers.sample(n=self.num_simulations, replace=True).reset_index(drop=True)
-            ox = chosen["x"].to_numpy(dtype=float)
-            oy = chosen["y"].to_numpy(dtype=float)
-            sid = chosen["storm_path"].astype(str).to_numpy()
-
-            # prepare proposers per distribution
-            if self.distribution == "uniform":
-                propose = lambda m: self._propose_uniform(bounds, m)
-            elif self.distribution == "truncated_gaussian":
-                tx, ty = self._propose_trunc_gauss_setup(bounds)
-                propose = lambda m: self._propose_trunc_gauss(tx, ty, m)
-            elif self.distribution == "gaussian_copula":
-                tx, ty = self._propose_trunc_gauss_setup(bounds)
-                rho = float(self.params["rho"])
-                propose = lambda m: self._propose_gauss_copula(tx, ty, rho, m)
-            elif self.distribution == "mixture_trunc_gauss":
-                mix_setup = self._propose_mixture_setup(bounds)
-                propose = lambda m: self._propose_mixture(mix_setup, m)
-            else:
-                raise RuntimeError("unreachable")
-
-            # fill valid samples per-storm
+        for r_idx in range(self.num_realizations):
+            rng = np.random.default_rng(real_seeds[r_idx])
             n = self.num_simulations
-            newx = np.full(n, np.nan, dtype=float)
-            newy = np.full(n, np.nan, dtype=float)
-            pending = np.arange(n)
-            tries = 0
-            while pending.size and tries < self.max_iter_per_point:
-                px, py = propose(pending.size)
 
-                # inside domain polygon?
-                inside = self._points_in(D, px, py, self.include_boundary, crs=domain_gdf.crs).to_numpy()
+            # 1) storms uniformly
+            chosen_idx = rng.integers(0, S, size=n)
+            chosen_storms = storms[chosen_idx]
 
-                # validity by shifted watershed centroid, for those candidates
-                dx = px - ox[pending]
-                dy = py - oy[pending]
-                sx = cx - dx
-                sy = cy - dy
-                valid = self._points_in(V, sx, sy, self.include_boundary, crs=domain_gdf.crs).to_numpy()
+            # 2) cells per storm
+            newx = np.empty(n, dtype=float)
+            newy = np.empty(n, dtype=float)
+            w_raw = np.empty(n, dtype=float)
 
-                keep = inside & valid
-                if keep.any():
-                    idx_keep = pending[keep]
-                    newx[idx_keep] = px[keep]
-                    newy[idx_keep] = py[keep]
-                    pending = pending[~keep]
-                tries += 1
+            uniq, inv = np.unique(chosen_storms, return_inverse=True)
+            rowsN = mask_da.sizes["y"]; colsN = mask_da.sizes["x"]
 
-            if pending.size:
-                raise RuntimeError(
-                    f"Could not find valid centers for {pending.size} samples after {self.max_iter_per_point} tries. "
-                    "Increase max_iter_per_point or adjust proposal/validity region."
-                )
+            for k, sname in enumerate(uniq):
+                take = np.where(inv == k)[0]
+                ps = per_storm[sname]
+                flat_idx = ps["flat_idx"]
 
-            # deltas
+                if self.distribution == "uniform":
+                    picks = rng.integers(0, flat_idx.size, size=take.size)
+                    chosen_flat = flat_idx[picks]
+                    w_raw[take] = 1.0
+                else:
+                    qb_vals = ps["qb_vals"]
+                    Zj = ps["Z"]
+                    p = qb_vals / (Zj if Zj > 0.0 else np.finfo(float).tiny)
+                    chosen_idx_local = rng.choice(qb_vals.size, size=take.size, replace=True, p=p)
+                    chosen_flat = flat_idx[chosen_idx_local]
+                    q_at_p = qb_vals[chosen_idx_local]
+                    w_raw[take] = Zj / (float(ps["count"]) * q_at_p)
+
+                ii = chosen_flat // colsN
+                jj = chosen_flat % colsN
+                newx[take] = xs[jj]
+                newy[take] = ys[ii]
+
+            # 3) deltas
+            ox = np.fromiter((s2xy[s][0] for s in chosen_storms), dtype=float, count=n)
+            oy = np.fromiter((s2xy[s][1] for s in chosen_storms), dtype=float, count=n)
             delx = newx - ox
             dely = newy - oy
 
-            # weights (same formulas as before)
+            # 4) normalize weights within realization
             if self.distribution == "uniform":
                 w = np.full(n, 1.0 / n, dtype=float)
+                w_raw_real = np.ones(n, dtype=float)
+            else:
+                w_raw_real = w_raw
+                sum_w = float(np.sum(w_raw_real))
+                if not np.isfinite(sum_w) or sum_w <= 0:
+                    raise RuntimeError("Degenerate importance weights (sum <= 0). Check proposal parameters.")
+                w = w_raw_real / sum_w
 
-            elif self.distribution == "truncated_gaussian":
-                P = self.params
-                xmin, ymin, xmax, ymax = bounds
-                mx, my = float(P["mu_x"]), float(P["mu_y"])
-                sx, sy = float(P["sd_x"]), float(P["sd_y"])
-                ax, bx = (xmin - mx)/sx, (xmax - mx)/sx
-                ay, by = (ymin - my)/sy, (ymax - my)/sy
-                tx = truncnorm(ax, bx, loc=mx, scale=sx)
-                ty = truncnorm(ay, by, loc=my, scale=sy)
-                qx = np.clip(tx.pdf(newx), eps, np.inf)
-                qy = np.clip(ty.pdf(newy), eps, np.inf)
-                q = qx * qy
-                w = (1.0 / area) / q
-                w = w / w.sum()
-
-            elif self.distribution == "gaussian_copula":
-                P = self.params
-                xmin, ymin, xmax, ymax = bounds
-                mx, my = float(P["mu_x"]), float(P["mu_y"])
-                sx, sy = float(P["sd_x"]), float(P["sd_y"])
-                rho = float(P["rho"])
-                ax, bx = (xmin - mx)/sx, (xmax - mx)/sx
-                ay, by = (ymin - my)/sy, (ymax - my)/sy
-                tx = truncnorm(ax, bx, loc=mx, scale=sx)
-                ty = truncnorm(ay, by, loc=my, scale=sy)
-                Fx = np.clip(tx.cdf(newx), eps, 1-eps)
-                Fy = np.clip(ty.cdf(newy), eps, 1-eps)
-                zx = norm.ppf(Fx); zy = norm.ppf(Fy)
-                cov = np.array([[1.0, rho],[rho, 1.0]])
-                phi = multivariate_normal(mean=[0,0], cov=cov)
-                qcop = np.exp(phi.logpdf(np.column_stack([zx, zy])) - (norm.logpdf(zx) + norm.logpdf(zy)))
-                fx = np.clip(tx.pdf(newx), eps, np.inf)
-                fy = np.clip(ty.pdf(newy), eps, np.inf)
-                q = qcop * fx * fy
-                w = (1.0 / area) / q
-                w = w / w.sum()
-
-            elif self.distribution == "mixture_trunc_gauss":
-                P = self.params
-                xmin, ymin, xmax, ymax = bounds
-                mxn = float(P.get("mu_x_narrow", P.get("mu_x"))); myn = float(P.get("mu_y_narrow", P.get("mu_y")))
-                mxw = float(P.get("mu_x_wide",   P.get("mu_x"))); myw = float(P.get("mu_y_wide",   P.get("mu_y")))
-                sxn, syn = float(P["sd_x_narrow"]), float(P["sd_y_narrow"])
-                sxw, syw = float(P["sd_x_wide"]),   float(P["sd_y_wide"])
-                mix = float(P["mix"])
-                rho_n = float(P.get("rho", P.get("rho_narrow", 0.0)))
-                rho_w = float(P.get("rho", P.get("rho_wide",   0.0)))
-
-                axn, bxn = (xmin - mxn)/sxn, (xmax - mxn)/sxn
-                ayn, byn = (ymin - myn)/syn, (ymax - myn)/syn
-                axw, bxw = (xmin - mxw)/sxw, (xmax - mxw)/sxw
-                ayw, byw = (ymin - myw)/syw, (ymax - myw)/syw
-
-                tx_n = truncnorm(axn, bxn, loc=mxn, scale=sxn)
-                ty_n = truncnorm(ayn, byn, loc=myn, scale=syn)
-                tx_w = truncnorm(axw, bxw, loc=mxw, scale=sxw)
-                ty_w = truncnorm(ayw, byw, loc=myw, scale=syw)
-
-                cov_n = np.array([[1.0, rho_n],[rho_n, 1.0]])
-                cov_w = np.array([[1.0, rho_w],[rho_w, 1.0]])
-                phi_n = multivariate_normal(mean=[0,0], cov=cov_n)
-                phi_w = multivariate_normal(mean=[0,0], cov=cov_w)
-
-                Fx_n = np.clip(tx_n.cdf(newx), eps, 1-eps); Fy_n = np.clip(ty_n.cdf(newy), eps, 1-eps)
-                zx_n = norm.ppf(Fx_n); zy_n = norm.ppf(Fy_n)
-                Fx_w = np.clip(tx_w.cdf(newx), eps, 1-eps); Fy_w = np.clip(ty_w.cdf(newy), eps, 1-eps)
-                zx_w = norm.ppf(Fx_w); zy_w = norm.ppf(Fy_w)
-
-                qcop_n = np.exp(phi_n.logpdf(np.column_stack([zx_n, zy_n])) - (norm.logpdf(zx_n) + norm.logpdf(zy_n)))
-                qcop_w = np.exp(phi_w.logpdf(np.column_stack([zx_w, zy_w])) - (norm.logpdf(zx_w) + norm.logpdf(zy_w)))
-
-                fx_n = np.clip(tx_n.pdf(newx), eps, np.inf); fy_n = np.clip(ty_n.pdf(newy), eps, np.inf)
-                fx_w = np.clip(tx_w.pdf(newx), eps, np.inf); fy_w = np.clip(ty_w.pdf(newy), eps, np.inf)
-
-                q_n = qcop_n * fx_n * fy_n
-                q_w = qcop_w * fx_w * fy_w
-                q = mix * q_n + (1.0 - mix) * q_w
-                w = (1.0 / area) / q
-                w = w / w.sum()
-
-            # assemble
             out = pd.DataFrame({
-                "rep": rep,
-                "event_id": np.arange(1, n + 1, dtype=int),
-                "storm_path": sid,
-                "x": ox,
-                "y": oy,
-                "newx": newx,
-                "newy": newy,
-                "delx": delx,
-                "dely": dely,
+                "realization": r_idx + 1,
+                "realization_seed": real_seeds[r_idx],
+                "event_id": np.arange(1, n+1, dtype=int),
+                "storm_path": chosen_storms,
+                "x": ox, "y": oy,
+                "newx": newx, "newy": newy,
+                "delx": delx, "dely": dely,
+                "weight_raw": w_raw_real,
                 "weight": w,
             })
-            all_out.append(out)
+            all_frames.append(out)
 
-        return pd.concat(all_out, ignore_index=True)
+        return pd.concat(all_frames, ignore_index=True)
