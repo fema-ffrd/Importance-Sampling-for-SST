@@ -1,6 +1,96 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
+import pandas as pd
+
+def plot_return_period_summary(summary: pd.DataFrame, title: str = "Depth–Return Period Curve"):
+    """
+    Plot median and 95% confidence band of precipitation vs. return period.
+
+    summary: DataFrame returned by summarize_depths_by_return_period
+             must have columns ['RP','median_in','ci95_low_in','ci95_high_in']
+    """
+    if summary.empty:
+        print("Summary DataFrame is empty. Nothing to plot.")
+        return
+
+    rp = summary["RP"].values
+    med = summary["median_in"].values
+    low = summary["ci95_low_in"].values
+    high = summary["ci95_high_in"].values
+
+    plt.figure(figsize=(9,6))
+    plt.fill_between(rp, low, high, color="lightblue", alpha=0.4, label="95% CI")
+    plt.plot(rp, med, color="blue", lw=2, label="Median")
+
+    plt.xscale("log")
+
+    # specify desired tick marks
+    xticks = [2,5,10,25,50,100,200,500,1000,2000]
+    plt.xticks(xticks, labels=[str(x) for x in xticks])
+
+    plt.xlabel("Return Period (years)")
+    plt.ylabel("Precipitation (inches)")
+    plt.title(title)
+    plt.grid(True, which="both", linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_two_return_period_summaries(summary1: pd.DataFrame,
+                                    summary2: pd.DataFrame,
+                                    label1: str = "Uniform",
+                                    label2: str = "Truncated Normal",
+                                    title: str = "Depth–Return Period Curve (comparison)"):
+    """
+    Plot median + 95% CI for two summaries in one plot.
+
+    Each summary must have columns:
+      ['RP','median_in','ci95_low_in','ci95_high_in']
+    """
+    if summary1.empty or summary2.empty:
+        print("One or both summary DataFrames are empty.")
+        return
+
+    rp1 = summary1["RP"].values
+    med1 = summary1["median_in"].values
+    low1 = summary1["ci95_low_in"].values
+    high1 = summary1["ci95_high_in"].values
+
+    rp2 = summary2["RP"].values
+    med2 = summary2["median_in"].values
+    low2 = summary2["ci95_low_in"].values
+    high2 = summary2["ci95_high_in"].values
+
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+
+    # Fill + line for summary1
+    ax.fill_between(rp1, low1, high1, color="lightblue", alpha=0.3)
+    ax.plot(rp1, med1, color="blue", lw=2, label=f"{label1} (median)")
+
+    # Fill + line for summary2
+    ax.fill_between(rp2, low2, high2, color="lightcoral", alpha=0.3)
+    ax.plot(rp2, med2, color="red", lw=2, label=f"{label2} (median)")
+
+    # log x-axis with requested ticks
+    ax.set_xscale("log")
+    xticks = [2,5,10,25,50,100,200,500,1000,2000]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([str(x) for x in xticks])
+
+    ax.set_xlabel("Return Period (years)")
+    ax.set_ylabel("Precipitation (inches)")
+    ax.grid(True, which="both", linestyle="--", alpha=0.5)
+
+    # legend at bottom center
+    ax.legend(frameon=False, loc='upper center', bbox_to_anchor=(0.5, -0.15),
+              ncol=2, fontsize=9)
+
+    ax.set_title(title, pad=12)
+    fig.tight_layout()
+    plt.show()
+
+
 
 def plot_adaptive_evolution(history, watershed_gdf, domain_gdf, *, save=False, prefix="ais"):
     """
