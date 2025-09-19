@@ -14,8 +14,7 @@
    .. autosummary::
    
       ~StormDepthProcessor.__init__
-      ~StormDepthProcessor.add_exc_prb
-      ~StormDepthProcessor.shift_and_extract_precip
+      ~StormDepthProcessor.run
    
    
 

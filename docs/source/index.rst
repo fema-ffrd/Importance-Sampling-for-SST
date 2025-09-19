@@ -24,4 +24,5 @@ It includes:
 
    api_preprocessor
    api_importancesampler
+   api_adaptiveimportancesampler
    api_stormdepthprocessor
