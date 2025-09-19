@@ -10,20 +10,37 @@ import geopandas as gpd
 
 class StormDepthProcessor:
     """
-    Works with cumulative_precip as:
-      - xr.DataArray with dims ('storm_path','y','x'), or
-      - xr.Dataset containing var 'cumulative_precip', or
-      - dict[str, xr.DataArray(y,x)] mapping storm_path -> 2D field.
+    Evaluate watershed-averaged storm depths for translated storm centers, then
+    compute weighted exceedance probabilities per realization.
 
-    Expects the samples DataFrame to include:
-      required: ['storm_path','newx','newy','weight','event_id']
-      optional: ['realization','realization_seed']
-
-    Outputs per row:
-      ['event_id','storm_path','x','y','weight','precip_avg_mm','exc_prb','realization','realization_seed?']
+    Inputs
+    ------
+    The constructor expects an object ``data`` (e.g., your Preprocessor output or
+    a loader) providing:
+      - ``cumulative_precip``:
+          * ``xarray.DataArray`` with dims ``("storm_path","y","x")``, or
+          * ``xarray.Dataset`` containing variable ``"cumulative_precip"``, or
+          * ``dict[str, xarray.DataArray(y,x)]`` mapping storm id → 2-D field (mm).
+      - ``watershed_gdf`` : GeoDataFrame of the target watershed (same grid CRS).
+      - ``storm_centers`` : DataFrame with original centers (columns ``["storm_path","x","y"]``).
     """
 
-    def __init__(self, data):
+    def __init__(self, data, *, zero_pad_edges: bool = True):
+        """
+        Normalize precipitation inputs, build grid transforms, and rasterize the watershed mask.
+
+        Parameters
+        ----------
+        data : object
+            Must expose:
+              • ``cumulative_precip`` (DataArray/Dataset/dict as above),
+              • ``watershed_gdf`` (GeoDataFrame),
+              • ``storm_centers`` (DataFrame with ``["storm_path","x","y"]``).
+        zero_pad_edges : bool, default True
+            If True, set rolled edges to 0; if False, set rolled edges to NaN.
+        """
+        self.zero_pad_edges = bool(zero_pad_edges)
+
         raw = data.cumulative_precip
 
         # --- normalize cumulative_precip into either a 3D DataArray or a dict ---
@@ -75,6 +92,14 @@ class StormDepthProcessor:
 
     # unified getter for a storm's 2D precip field
     def _get_precip_by_path(self, storm_path: str) -> np.ndarray:
+        """
+        Return the (y, x) cumulative-precipitation array for a given ``storm_path``.
+
+        Raises
+        ------
+        KeyError
+            If the requested storm id is not present in the underlying data.
+        """
         if self._cube is not None:
             idx = self._path_to_idx.get(storm_path)
             if idx is None:
@@ -88,6 +113,23 @@ class StormDepthProcessor:
 
     # -------- public: single runner --------
     def run(self, df_storms: pd.DataFrame, n_jobs: int = -1) -> pd.DataFrame:
+        """
+        Evaluate watershed-mean depths for translated centers and compute exceedance probabilities.
+
+        Parameters
+        ----------
+        df_storms : pandas.DataFrame
+            Required columns: ``["storm_path","newx","newy","weight","event_id"]``.
+            Optional: ``["realization","realization_seed"]``.
+        n_jobs : int, default -1
+            Parallelism for per-event processing (joblib). ``-1`` uses all cores.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Per-event results with ``precip_avg_mm`` and per-realization ``exc_prb`` added.
+            Empty DataFrame is returned if ``df_storms`` is empty.
+        """
         if df_storms.empty:
             return pd.DataFrame()
 
@@ -114,6 +156,14 @@ class StormDepthProcessor:
 
     # -------- internals --------
     def _process_single(self, row: pd.Series) -> Union[dict, None]:
+        """
+        Translate one storm by (Δx, Δy), compute watershed-mean cumulative precipitation.
+
+        Returns
+        -------
+        dict | None
+            Per-event dictionary or ``None`` if the storm id was not found.
+        """
         sp = str(row["storm_path"])
         if sp not in self.storm_centers.index:
             return None
@@ -127,14 +177,25 @@ class StormDepthProcessor:
         precip = self._get_precip_by_path(sp)           # (y,x) ndarray
         shifted = np.roll(precip, shift=(dy_cells, dx_cells), axis=(0, 1))
 
-        # cut rolled edges to NaN (no wrap)
-        if dy_cells > 0:   shifted[:dy_cells, :] = np.nan
-        elif dy_cells < 0: shifted[dy_cells:, :] = np.nan
-        if dx_cells > 0:   shifted[:, :dx_cells] = np.nan
-        elif dx_cells < 0: shifted[:, dx_cells:] = np.nan
+        # cut rolled edges
+        if self.zero_pad_edges:
+            if dy_cells > 0:   shifted[:dy_cells, :] = 0.0
+            elif dy_cells < 0: shifted[dy_cells:, :] = 0.0
+            if dx_cells > 0:   shifted[:, :dx_cells] = 0.0
+            elif dx_cells < 0: shifted[:, dx_cells:] = 0.0
+        else:
+            if dy_cells > 0:   shifted[:dy_cells, :] = np.nan
+            elif dy_cells < 0: shifted[dy_cells:, :] = np.nan
+            if dx_cells > 0:   shifted[:, :dx_cells] = np.nan
+            elif dx_cells < 0: shifted[:, dx_cells:] = np.nan
 
         vals = shifted[self.watershed_mask]
-        precip_avg = np.nan if np.isnan(vals).any() else (float(vals.mean()) if vals.size else np.nan)
+
+        if self.zero_pad_edges:
+            # treat any residual NaNs (if present in source) as 0.0
+            precip_avg = float(np.nan_to_num(vals, nan=0.0).mean()) if vals.size else np.nan
+        else:
+            precip_avg = np.nan if np.isnan(vals).any() else (float(vals.mean()) if vals.size else np.nan)
 
         out = {
             "event_id": str(int(row["event_id"])) if not isinstance(row["event_id"], str) else row["event_id"],
@@ -149,6 +210,12 @@ class StormDepthProcessor:
         return out
 
     def _add_exc_prb(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute weighted exceedance probability within each realization.
+
+        For each realization, sort rows by ``precip_avg_mm`` (descending) and take the
+        cumulative sum of ``weight``; assign that running sum to ``exc_prb`` for those rows.
+        """
         df = df.copy()
         df["exc_prb"] = np.nan
         for r, group in df.groupby("realization", dropna=False):

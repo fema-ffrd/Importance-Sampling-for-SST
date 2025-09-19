@@ -14,7 +14,6 @@ import SSTImportanceSampling
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'SSTImportanceSampling'
-copyright = "2025, FEMA"
 author = ""
 release = '0.1'
 
