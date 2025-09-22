@@ -4,49 +4,30 @@ import pandas as pd
 import xarray as xr
 import geopandas as gpd
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 from scipy.stats import truncnorm, norm, multivariate_normal
 from shapely.geometry import mapping
 from rasterio.features import geometry_mask
 from affine import Affine
 
+
 # ----------------------------- parameter bundle -----------------------------
 
 @dataclass
 class AdaptParams:
-    """
-    Parameters for the two-component adaptive mixture.
-
-    Narrow component (adapted over iterations):
-        mu_x_n, mu_y_n : initial narrow mean (domain units)
-        sd_x_n, sd_y_n : initial narrow std dev
-        rho_n          : narrow copula correlation (on latent normals)
-
-    Wide component (fixed throughout adaptation):
-        mu_x_w, mu_y_w : wide mean (e.g., domain centroid)
-        sd_x_w, sd_y_w : wide std dev (e.g., domain ranges)
-        rho_w          : wide copula correlation
-
-    Mixture and adaptation knobs:
-        mix            : initial narrow weight (clamped to [beta_floor, beta_ceil])
-        alpha          : EMA smoothing for moment-matched mean/variance (narrow)
-        eps_var        : variance floor to avoid collapse
-        lambda_mix     : damping for mixture update (0=no update, 1=full)
-        beta_floor     : min allowed narrow weight
-        beta_ceil      : max allowed narrow weight
-        K_temper       : nonnegative tempering added to (depth) for hit reweighting
-    """
-    # Narrow (adapted) — non-defaults
+    # ---- required (no defaults) ----
+    # Narrow (ADAPTED)
     mu_x_n: float
     mu_y_n: float
     sd_x_n: float
     sd_y_n: float
-    # Wide (fixed) — non-defaults
+    # Wide (FIXED)
     mu_x_w: float
     mu_y_w: float
     sd_x_w: float
     sd_y_w: float
-    # Defaults
+
+    # ---- with defaults (place AFTER all required) ----
     rho_n: float = 0.0
     rho_w: float = 0.0
     mix: float = 0.25
@@ -58,69 +39,34 @@ class AdaptParams:
     K_temper: float = 1.0
 
 
+# ------------------------------ main sampler --------------------------------
+
 class AdaptiveMixtureSampler:
     """
-    Adaptive importance sampler over storm centers with real transposition depths.
-
-    Model
-    -----
-    Proposal q(x,y) is a two-component mixture of rectangle-truncated Normals.
-    Each component uses truncated marginals and a Gaussian copula (ρ) on the latent
-    standard normals. The **narrow** component parameters (μ, σ) adapt via
-    moment matching on **hits** (depth > 0); the **wide** component stays fixed.
-    The mixture weight `mix` updates with a damped EM-style step using a smoothed,
-    weighted hit rate.
-
-    Depth model (no toy simulator):
-    For each sampled (x,y), pick **one storm** from `precip_cube` (with replacement),
-    shift the storm grid so its original center moves to (x,y), zero-pad exposed edges,
-    mask to the watershed polygon, and compute the basin-averaged depth (mm).
-
-    Inputs
-    ------
-    precip_cube : xr.DataArray
-        Dimensions ('storm_path','y','x'), same projected CRS as (x,y) coordinates.
-    storm_centers : pd.DataFrame
-        Columns ['storm_path','x','y'] with original catalog centers in the same CRS.
-    watershed_gdf : gpd.GeoDataFrame
-        One polygon row; defines basin for averaging (same CRS).
-    domain_gdf : gpd.GeoDataFrame
-        One polygon row; defines the sampling domain (same CRS).
-    params : AdaptParams
-        Mixture and adaptation hyperparameters.
-    seed : Optional[int]
-        RNG seed for reproducibility.
-
-    Key Methods
-    -----------
-    adapt(num_iterations, samples_per_iter) -> pd.DataFrame
-        Runs adaptation; returns iteration-by-iteration diagnostics (including iter=0 snapshot).
-    sample_final(n, with_depths=True) -> pd.DataFrame
-        Draws final samples and returns a **full table** with:
-            rep, event_id, x, y, weight, storm_path, precip_avg_mm, exc_prb
-        (matching your other pipelines’ outputs).
-    weighted_frequency(depths, weights) -> (depths_sorted, exceedance_probs)
-        Utility to compute weighted exceedance curves.
     """
 
     # ---------------------------- init & setup -----------------------------
 
     def __init__(
         self,
-        precip_cube: xr.DataArray,
+        precip_cube: xr.DataArray | xr.Dataset | Dict[str, xr.DataArray],
         storm_centers: pd.DataFrame,
         watershed_gdf: gpd.GeoDataFrame,
         domain_gdf: gpd.GeoDataFrame,
         params: AdaptParams,
         seed: Optional[int] = None,
     ):
-        self.cube = precip_cube
-        self.domain = domain_gdf.iloc[[0]].copy()
-        self.watershed = watershed_gdf.iloc[[0]].copy()
         self.params = params
         self.rng = np.random.default_rng(seed)
 
-        # Grid geometry
+        # --- normalize precip input to a DataArray cube ('storm_path','y','x') ---
+        self.cube = self._normalize_precip(precip_cube, storm_centers)
+
+        # domain / watershed
+        self.domain = domain_gdf.iloc[[0]].copy()
+        self.watershed = watershed_gdf.iloc[[0]].copy()
+
+        # grid geometry
         self.x_coords = self.cube.coords["x"].values
         self.y_coords = self.cube.coords["y"].values
         self.dx = float(np.mean(np.diff(self.x_coords)))
@@ -131,7 +77,7 @@ class AdaptiveMixtureSampler:
             * Affine.scale(self.dx, self.dy)
         )
 
-        # Watershed mask (True = inside)
+        # watershed mask (True inside)
         self.ws_mask = geometry_mask(
             geometries=[mapping(g) for g in self.watershed.geometry],
             out_shape=(len(self.y_coords), len(self.x_coords)),
@@ -142,23 +88,72 @@ class AdaptiveMixtureSampler:
         if self.ws_npix <= 0:
             raise ValueError("Watershed mask is empty.")
 
-        # Storm index + centers aligned to cube order
-        self.storm_paths: np.ndarray = self.cube.coords["storm_path"].values
-        sc = storm_centers.set_index("storm_path")
-        self.center_xy = sc.loc[self.storm_paths, ["x", "y"]].to_numpy()
+        # storm index + centers aligned to cube order
+        self.storm_paths: np.ndarray = self.cube.coords["storm_path"].values.astype(str)
+        sc = storm_centers.copy()
+        sc["storm_path"] = sc["storm_path"].astype(str)
+        sc = sc.set_index("storm_path").reindex(self.storm_paths)
+        if sc[["x", "y"]].isna().any().any():
+            missing = sc.index[sc[["x", "y"]].isna().any(axis=1)].tolist()
+            raise KeyError(f"Missing centers for storm(s): {missing}")
+        self.center_xy = sc[["x", "y"]].to_numpy(float)
 
-        # Target density (uniform over domain polygon)
+        # target density (uniform over domain polygon)
         self.xmin, self.ymin, self.xmax, self.ymax = self.domain.total_bounds
         self.domain_area = float(self.domain.geometry.iloc[0].area)
         if not np.isfinite(self.domain_area) or self.domain_area <= 0:
             raise ValueError("Domain polygon area must be positive and finite.")
         self.log_p = -np.log(self.domain_area)
 
-        # Build distributions
+        # build proposal components
         self._refresh_components()
 
-        # Iteration log
+        # iteration log
         self.history: List[dict] = []
+
+    # ---------------------- precip normalization ----------------------
+
+    @staticmethod
+    def _normalize_precip(
+        raw: xr.DataArray | xr.Dataset | Dict[str, xr.DataArray],
+        storm_centers: pd.DataFrame,
+    ) -> xr.DataArray:
+        """
+        Return xr.DataArray with dims ('storm_path','y','x') and coords {storm_path,x,y}.
+        """
+        if isinstance(raw, xr.Dataset):
+            if "cumulative_precip" not in raw:
+                raise KeyError("Dataset must contain variable 'cumulative_precip'.")
+            cube = raw["cumulative_precip"]
+        elif isinstance(raw, xr.DataArray):
+            cube = raw
+        elif isinstance(raw, dict):
+            order = storm_centers["storm_path"].astype(str).tolist()
+            arrs, names = [], []
+            x_ref = y_ref = None
+            for sp in order:
+                da = raw.get(str(sp))
+                if da is None:
+                    raise KeyError(f"Storm '{sp}' missing in precip dict.")
+                # enforce same x/y across all storms
+                if x_ref is None:
+                    x_ref = da.coords["x"].values
+                    y_ref = da.coords["y"].values
+                else:
+                    if not np.array_equal(x_ref, da.coords["x"].values) or not np.array_equal(y_ref, da.coords["y"].values):
+                        raise ValueError("All precip fields must share identical x/y coordinates.")
+                arrs.append(da)
+                names.append(str(sp))
+            cube = xr.concat(arrs, dim="storm_path").assign_coords(storm_path=np.array(names, dtype=str))
+        else:
+            raise TypeError("Unsupported type for precip_cube. Use DataArray, Dataset, or dict[str -> DataArray(y,x)].")
+
+        # standardize dims order
+        dims = tuple(cube.dims)
+        if set(("storm_path", "y", "x")) - set(dims):
+            raise ValueError("Precip cube must have dims including 'storm_path','y','x'.")
+        cube = cube.transpose("storm_path", "y", "x")
+        return cube
 
     # ------------------ internal: distributions & log q --------------------
 
@@ -175,7 +170,7 @@ class AdaptiveMixtureSampler:
         self.tx_n = truncnorm(a_xn, b_xn, loc=p.mu_x_n, scale=p.sd_x_n)
         self.ty_n = truncnorm(a_yn, b_yn, loc=p.mu_y_n, scale=p.sd_y_n)
 
-        # Wide (fixed)
+        # Wide
         a_xw = (self.xmin - p.mu_x_w) / p.sd_x_w
         b_xw = (self.xmax - p.mu_x_w) / p.sd_x_w
         a_yw = (self.ymin - p.mu_y_w) / p.sd_y_w
@@ -192,7 +187,7 @@ class AdaptiveMixtureSampler:
         self.phi_w = multivariate_normal(mean=[0.0, 0.0], cov=self.cov_w)
 
     def _log_q_mixture(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """log q(x,y) via log-sum-exp over the (narrow, wide) components."""
+        """log q(x,y) via log-sum-exp over (narrow, wide)."""
         eps = 1e-12
         mix = self.params.mix
 
@@ -221,8 +216,9 @@ class AdaptiveMixtureSampler:
 
     # -------------------- internal: sample (x,y) inside ---------------------
 
-    def _sample_xy(self, n: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Sample n points from the mixture and retain only those inside the domain polygon."""
+    def _sample_xy(self, n: int, rng: Optional[np.random.Generator] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Sample n points from the mixture and keep only those inside the domain polygon."""
+        rng = self.rng if rng is None else rng
         poly = self.domain.geometry.iloc[0]
         eps = 1e-12
         mix = self.params.mix
@@ -232,18 +228,16 @@ class AdaptiveMixtureSampler:
         tries = 0
         while len(xs) < n and tries < 200:
             tries += 1
-            choose_n = self.rng.random(batch) < mix
+            choose_n = rng.random(batch) < mix
             x = np.empty(batch, float); y = np.empty(batch, float)
 
-            # narrow component
             if choose_n.any():
-                u = np.clip(self.rng.random((choose_n.sum(), 2)), eps, 1 - eps)
+                u = np.clip(rng.random((choose_n.sum(), 2)), eps, 1 - eps)
                 z = norm.ppf(u); zc = z @ self.L_n.T; uc = norm.cdf(zc)
                 x[choose_n] = self.tx_n.ppf(np.clip(uc[:, 0], eps, 1 - eps))
                 y[choose_n] = self.ty_n.ppf(np.clip(uc[:, 1], eps, 1 - eps))
-            # wide component
             if (~choose_n).any():
-                u = np.clip(self.rng.random(((~choose_n).sum(), 2)), eps, 1 - eps)
+                u = np.clip(rng.random(((~choose_n).sum(), 2)), eps, 1 - eps)
                 z = norm.ppf(u); zc = z @ self.L_w.T; uc = norm.cdf(zc)
                 x[~choose_n] = self.tx_w.ppf(np.clip(uc[:, 0], eps, 1 - eps))
                 y[~choose_n] = self.ty_w.ppf(np.clip(uc[:, 1], eps, 1 - eps))
@@ -258,12 +252,8 @@ class AdaptiveMixtureSampler:
 
     # --------------- internal: one-sample depth + storm_path ----------------
 
-    def _depth_and_storm_for_sample(self, x_new: float, y_new: float) -> Tuple[float, str]:
-        """
-        Pick one storm, shift to (x_new, y_new), zero-pad wrap, mask to watershed,
-        return (precip_avg_mm, storm_path).
-        """
-        k = int(self.rng.integers(low=0, high=len(self.storm_paths)))
+    def _depth_and_storm_for_sample(self, x_new: float, y_new: float, rng: np.random.Generator) -> Tuple[float, str]:
+        k = int(rng.integers(low=0, high=len(self.storm_paths)))
         storm_path = str(self.storm_paths[k])
         x_orig, y_orig = self.center_xy[k, :]
 
@@ -283,13 +273,12 @@ class AdaptiveMixtureSampler:
         precip_avg = float(masked.sum() / self.ws_npix)
         return precip_avg, storm_path
 
-    def _depths_and_storms(self, x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, List[str]]:
-        """Loop over samples; one storm per sample. Returns (depths_mm, storm_paths)."""
+    def _depths_and_storms(self, x: np.ndarray, y: np.ndarray, rng: np.random.Generator) -> Tuple[np.ndarray, List[str]]:
         n = x.size
         depths = np.empty(n, float)
         storms: List[str] = [None] * n
         for i in range(n):
-            depths[i], storms[i] = self._depth_and_storm_for_sample(x[i], y[i])
+            depths[i], storms[i] = self._depth_and_storm_for_sample(x[i], y[i], rng)
         return depths, storms
 
     # --------------------------- snapshot helper ----------------------------
@@ -303,7 +292,6 @@ class AdaptiveMixtureSampler:
         updated: int = 0,
         n: int = 0,
     ) -> dict:
-        """Create a log record for the current parameters/diagnostics."""
         p = self.params
         return dict(
             iter=it,
@@ -321,14 +309,8 @@ class AdaptiveMixtureSampler:
 
     def adapt(self, num_iterations: int, samples_per_iter: int) -> pd.DataFrame:
         """
-        Run adaptation and return a history DataFrame with iteration diagnostics.
-
-        Columns include:
-            iter, mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n,
-            mu_x_w, mu_y_w, sd_x_w, sd_y_w, rho_n, rho_w,
-            ess, hit_rate_raw, hit_rate_weighted, updated, n
+        No num_realizations here. Single-stream adaptation.
         """
-        # reset and log initial (iter=0) snapshot so plots show the starting guess
         self.history = []
         self.history.append(self._snapshot(it=0))
 
@@ -342,7 +324,7 @@ class AdaptiveMixtureSampler:
             sumW = w.sum()
             w_norm = (w / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w, 1.0 / len(w))
 
-            depths, _ = self._depths_and_storms(x, y)
+            depths, _ = self._depths_and_storms(x, y, self.rng)
             hits = (depths > 0).astype(int)
 
             # diagnostics
@@ -366,7 +348,7 @@ class AdaptiveMixtureSampler:
 
                 xh = x[idx]; yh = y[idx]
 
-                # ----- (a) Mean/variance updates in (x,y) for the NARROW component -----
+                # (a) Means/vars in (x,y) for NARROW
                 mu_x_new = float(np.sum(w_hit * xh))
                 mu_y_new = float(np.sum(w_hit * yh))
                 var_x_new = float(np.sum(w_hit * (xh - mu_x_new) ** 2) + p.eps_var)
@@ -379,15 +361,13 @@ class AdaptiveMixtureSampler:
                 p.sd_x_n = float(np.sqrt(max(vx, p.eps_var)))
                 p.sd_y_n = float(np.sqrt(max(vy, p.eps_var)))
 
-                # ----- (b) Copula correlation update on latent normals z -----
+                # (b) Copula correlation update on latent normals
                 eps = 1e-12
                 u_x = np.clip(self.tx_n.cdf(xh), eps, 1 - eps)
                 u_y = np.clip(self.ty_n.cdf(yh), eps, 1 - eps)
-                z_x = norm.ppf(u_x)
-                z_y = norm.ppf(u_y)
+                z_x = norm.ppf(u_x); z_y = norm.ppf(u_y)
 
-                mzx = float(np.sum(w_hit * z_x))
-                mzy = float(np.sum(w_hit * z_y))
+                mzx = float(np.sum(w_hit * z_x)); mzy = float(np.sum(w_hit * z_y))
                 vzx = float(np.sum(w_hit * (z_x - mzx) ** 2) + p.eps_var)
                 vzy = float(np.sum(w_hit * (z_y - mzy) ** 2) + p.eps_var)
                 cov_zy = float(np.sum(w_hit * (z_x - mzx) * (z_y - mzy)))
@@ -401,7 +381,7 @@ class AdaptiveMixtureSampler:
             # 5) refresh for next iter
             self._refresh_components()
 
-            # 6) log snapshot for this iteration
+            # 6) log snapshot
             self.history.append(self._snapshot(
                 it=t, ess=ess, hit_raw=hit_rate_raw, hit_w=p_hit_w, updated=updated, n=samples_per_iter
             ))
@@ -411,66 +391,69 @@ class AdaptiveMixtureSampler:
     # ----------------------------- final sampling ---------------------------
 
     @staticmethod
-    def _add_exc_prb(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Sort by precip_avg_mm (desc) and add cumulative exceedance probability
-        using the provided weights (already normalized).
-        """
-        df_sorted = df.sort_values("precip_avg_mm", ascending=False).reset_index(drop=True).copy()
-        w = df_sorted["weight"].to_numpy(dtype=float)
-        w = w / np.sum(w) if np.sum(w) > 0 else np.full_like(w, 1.0 / len(w))
-        df_sorted["exc_prb"] = np.cumsum(w)
-        return df_sorted
-
-    def sample_final(self, n: int, with_depths: bool = True) -> pd.DataFrame:
-        """
-        Draw n from the FINAL adapted proposal and return a full table that
-        mirrors the output from your existing pipeline.
-
-        Returns
-        -------
-        DataFrame with columns:
-            rep, event_id, x, y, weight, storm_path, precip_avg_mm, exc_prb
-        """
-        # 1) sample centers
-        x, y = self._sample_xy(n)
-
-        # 2) importance weights under final proposal
-        log_q = self._log_q_mixture(x, y)
-        w = np.exp(self.log_p - log_q)
-        s = w.sum()
-        w = (w / s) if (np.isfinite(s) and s > 0) else np.full_like(w, 1.0 / len(w))
-
-        # 3) compute depths and selected storm_path per sample
-        if with_depths:
-            depths, paths = self._depths_and_storms(x, y)
-        else:
-            depths = np.zeros(n, dtype=float)
-            idx = self.rng.integers(low=0, high=len(self.storm_paths), size=n)
-            paths = [str(self.storm_paths[k]) for k in idx]
-
-        # 4) assemble final table (same schema as your other methods)
-        df = pd.DataFrame({
-            "rep": 1,
-            "event_id": np.arange(1, n + 1, dtype=int),
-            "x": x,
-            "y": y,
-            "weight": w,
-            "storm_path": paths,
-            "precip_avg_mm": depths,
-        })
-
-        # 5) add exceedance probability
-        df = self._add_exc_prb(df)
+    def _add_exc_prb_per_rep(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["exc_prb"] = np.nan
+        for rep, grp in df.groupby("rep", dropna=False):
+            w = grp["weight"].to_numpy(float)
+            w = w / np.sum(w) if np.sum(w) > 0 else np.full_like(w, 1.0/len(w))
+            order = np.argsort(grp["precip_avg_mm"].to_numpy())[::-1]
+            idx_sorted = grp.index.to_numpy()[order]
+            df.loc[idx_sorted, "exc_prb"] = np.cumsum(w[order])
         return df
+
+    def sample_final(self, n: int, num_realizations: int = 1, with_depths: bool = True, seed: Optional[int] = None) -> pd.DataFrame:
+        """
+        Draw `n` samples per realization from the FINAL adapted proposal.
+        If num_realizations > 1, returns stacked reps with independent RNGs and per-rep weights/exceedance.
+        """
+        ss = np.random.SeedSequence(seed)
+        child_seeds = ss.spawn(num_realizations)
+
+        frames = []
+        for r_idx, cs in enumerate(child_seeds, start=1):
+            rng = np.random.default_rng(cs.generate_state(1, dtype=np.uint64)[0])
+
+            # 1) sample centers
+            x, y = self._sample_xy(n, rng=rng)
+
+            # 2) importance weights (normalize per rep)
+            log_q = self._log_q_mixture(x, y)
+            w = np.exp(self.log_p - log_q)
+            s = w.sum()
+            w = (w / s) if (np.isfinite(s) and s > 0) else np.full_like(w, 1.0 / len(w))
+
+            # 3) depths + storms
+            if with_depths:
+                depths, paths = self._depths_and_storms(x, y, rng)
+            else:
+                depths = np.zeros(n, dtype=float)
+                idx = rng.integers(low=0, high=len(self.storm_paths), size=n)
+                paths = [str(self.storm_paths[k]) for k in idx]
+
+            # 4) assemble
+            df = pd.DataFrame({
+                "rep": r_idx,
+                "event_id": np.arange(1, n + 1, dtype=int),
+                "x": x, "y": y,
+                "weight": w,
+                "storm_path": paths,
+                "precip_avg_mm": depths,
+            })
+            frames.append(df)
+
+        out = pd.concat(frames, ignore_index=True)
+
+        # 5) per-rep exceedance probabilities
+        if with_depths:
+            out = self._add_exc_prb_per_rep(out)
+
+        return out
 
     # ---------------------- helper: weighted frequency ----------------------
 
     @staticmethod
     def weighted_frequency(depths: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Weighted exceedance curve: sort depths high→low and return (depths_sorted, cumsum(weights_sorted)).
-        """
         order = np.argsort(depths)[::-1]
         d = depths[order]
         w = weights[order]
