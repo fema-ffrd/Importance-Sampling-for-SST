@@ -1,354 +1,381 @@
 from __future__ import annotations
+from dataclasses import dataclass
+from typing import Optional, Dict, Tuple, List
+
 import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
-from dataclasses import dataclass
-from typing import Optional, Tuple, List, Dict
-from scipy.stats import truncnorm, norm, multivariate_normal
-from shapely.geometry import mapping
-from rasterio.features import geometry_mask
-from affine import Affine
+from scipy.stats import truncnorm, norm
 
-
-# ----------------------------- parameter bundle -----------------------------
-
+# ----------------------------- params -----------------------------
 @dataclass
 class AdaptParams:
-    # ---- required (no defaults) ----
     # Narrow (ADAPTED)
-    mu_x_n: float
-    mu_y_n: float
-    sd_x_n: float
-    sd_y_n: float
-    # Wide (FIXED)
-    mu_x_w: float
-    mu_y_w: float
-    sd_x_w: float
-    sd_y_w: float
-
-    # ---- with defaults (place AFTER all required) ----
+    mu_x_n: Optional[float] = None
+    mu_y_n: Optional[float] = None
+    sd_x_n: float = 1.0
+    sd_y_n: float = 1.0
     rho_n: float = 0.0
+
+    # Wide (FIXED)
+    mu_x_w: Optional[float] = None
+    mu_y_w: Optional[float] = None
+    sd_x_w: float = 1.0
+    sd_y_w: float = 1.0
     rho_w: float = 0.0
-    mix: float = 0.25
+
+    # Mixture & smoothing
+    mix: float = 0.30
+    lambda_mix: float = 0.30
+    beta_floor: float = 0.05
+    beta_ceil: float = 0.95
+
     alpha: float = 0.75
     eps_var: float = 1e-6
-    lambda_mix: float = 0.30
-    beta_floor: float = 0.01
-    beta_ceil: float = 0.80
     K_temper: float = 1.0
 
+    # Numeric stability
+    eps_floor: float = 1e-300
 
-# ------------------------------ main sampler --------------------------------
+# -------------------------- helpers (q_base) --------------------------
+def _truncnorm_objs(bounds: Tuple[float,float,float,float], mx, my, sx, sy):
+    xmin, ymin, xmax, ymax = bounds
+    ax, bx = (xmin - mx)/sx, (xmax - mx)/sx
+    ay, by = (ymin - my)/sy, (ymax - my)/sy
+    return truncnorm(ax, bx, loc=mx, scale=sx), truncnorm(ay, by, loc=my, scale=sy)
 
+def _qbase_gaussian_copula(xs, ys, bounds, mx, my, sx, sy, rho, eps_floor) -> np.ndarray:
+    tx, ty = _truncnorm_objs(bounds, mx, my, sx, sy)
+    fx = np.maximum(tx.pdf(xs), eps_floor)  # (nx,)
+    fy = np.maximum(ty.pdf(ys), eps_floor)  # (ny,)
+    Fx = np.clip(tx.cdf(xs), 1e-15, 1-1e-15)
+    Fy = np.clip(ty.cdf(ys), 1e-15, 1-1e-15)
+    zx = norm.ppf(Fx)                       # (nx,)
+    zy = norm.ppf(Fy)                       # (ny,)
+
+    one_minus_r2 = 1.0 - rho*rho
+    const = -0.5*np.log1p(-rho*rho)
+    Zx = zx[None, :]
+    Zy = zy[:, None]
+    A = 0.5*(Zx**2 + Zy**2)
+    B = 0.5*((Zx**2 - 2.0*rho*Zx*Zy + Zy**2) / one_minus_r2)
+    qcop = np.exp(const + (A - B))
+    q2d = qcop * (fy[:, None] * fx[None, :])
+    return np.maximum(q2d, eps_floor)
+
+def _qbase_mixture(xs, ys, bounds, p: AdaptParams, eps_floor) -> np.ndarray:
+    q_n = _qbase_gaussian_copula(xs, ys, bounds,
+                                 mx=p.mu_x_n, my=p.mu_y_n,
+                                 sx=p.sd_x_n, sy=p.sd_y_n,
+                                 rho=p.rho_n, eps_floor=eps_floor)
+    q_w = _qbase_gaussian_copula(xs, ys, bounds,
+                                 mx=p.mu_x_w, my=p.mu_y_w,
+                                 sx=p.sd_x_w, sy=p.sd_y_w,
+                                 rho=p.rho_w, eps_floor=eps_floor)
+    return np.maximum(p.mix * q_n + (1.0 - p.mix) * q_w, eps_floor)
+
+# ------------------------ main adaptive class ------------------------
 class AdaptiveMixtureSampler:
     """
+    Adaptive mixture sampler on DISCRETE valid cells PER STORM using `valid_mask_nc`,
+    and the same weight formula as ImportanceSampler:
+        w_raw = Z_J / (|V_J| * q_base(P))
+
+    Required on `data`:
+      - valid_mask_nc : xr.DataArray ('storm','y','x'), values in {0,1}
+      - storm_centers : pd.DataFrame with ['storm_path','x','y']
+      - watershed_stats : dict-like or Series with ['x','y'] (for default μ)
+
+    Optional:
+      - cumulative_precip (or `precip_cube` arg): xr.DataArray ('storm','y','x') or dict[str->xr.DataArray(y,x)]
+        Used for adaptation (hits/depths). Will be auto-aligned to the mask grid.
     """
 
-    # ---------------------------- init & setup -----------------------------
-
-    def __init__(
-        self,
-        precip_cube: xr.DataArray | xr.Dataset | Dict[str, xr.DataArray],
-        storm_centers: pd.DataFrame,
-        watershed_gdf: gpd.GeoDataFrame,
-        domain_gdf: gpd.GeoDataFrame,
-        params: AdaptParams,
-        seed: Optional[int] = None,
-    ):
+    def __init__(self,
+                 data,
+                 params: AdaptParams,
+                 precip_cube: xr.DataArray | Dict[str, xr.DataArray] | None = None,
+                 seed: Optional[int] = None,
+                 align_precip: bool = True,
+                 align_method: str = "nearest"):
         self.params = params
         self.rng = np.random.default_rng(seed)
 
-        # --- normalize precip input to a DataArray cube ('storm_path','y','x') ---
-        self.cube = self._normalize_precip(precip_cube, storm_centers)
+        # ---- validate inputs like ImportanceSampler ----
+        if not hasattr(data, "valid_mask_nc"):
+            raise ValueError("`data` must have attribute `valid_mask_nc` (xarray DataArray).")
+        if not hasattr(data, "storm_centers"):
+            raise ValueError("`data` must have attribute `storm_centers` (DataFrame).")
 
-        # domain / watershed
-        self.domain = domain_gdf.iloc[[0]].copy()
-        self.watershed = watershed_gdf.iloc[[0]].copy()
+        self.mask_da: xr.DataArray = data.valid_mask_nc
+        if not {"storm","y","x"} <= set(self.mask_da.dims):
+            raise ValueError("valid_mask_nc must have dims ('storm','y','x').")
 
-        # grid geometry
-        self.x_coords = self.cube.coords["x"].values
-        self.y_coords = self.cube.coords["y"].values
-        self.dx = float(np.mean(np.diff(self.x_coords)))
-        self.dy = float(np.mean(np.diff(self.y_coords)))
-        self.transform = (
-            Affine.translation(self.x_coords[0] - self.dx / 2.0,
-                               self.y_coords[0] - self.dy / 2.0)
-            * Affine.scale(self.dx, self.dy)
-        )
+        # Grid and bounds from MASK (exactly like ImportanceSampler)
+        self.xs = self.mask_da["x"].values
+        self.ys = self.mask_da["y"].values
+        self.colsN = len(self.xs)
+        self.rowsN = len(self.ys)
+        self.bounds = (float(self.xs[0]), float(self.ys[0]), float(self.xs[-1]), float(self.ys[-1]))
 
-        # watershed mask (True inside)
-        self.ws_mask = geometry_mask(
-            geometries=[mapping(g) for g in self.watershed.geometry],
-            out_shape=(len(self.y_coords), len(self.x_coords)),
-            transform=self.transform,
-            invert=True,
-        )
-        self.ws_npix = int(self.ws_mask.sum())
-        if self.ws_npix <= 0:
-            raise ValueError("Watershed mask is empty.")
+        # Centers table filtered to mask storms (exactly like ImportanceSampler)
+        centers_df: pd.DataFrame = data.storm_centers.copy()
+        need_cols = {"storm_path","x","y"}
+        if not need_cols <= set(centers_df.columns):
+            raise ValueError("storm_centers must contain columns ['storm_path','x','y'].")
+        storms_mask = self.mask_da["storm"].values.astype(str).tolist()
+        centers_df["storm_path"] = centers_df["storm_path"].astype(str)
+        centers_df = centers_df[centers_df["storm_path"].isin(storms_mask)].reset_index(drop=True)
+        if centers_df.empty:
+            raise ValueError("No overlapping storms between valid_mask_nc and storm_centers.")
+        self.centers_df = centers_df
+        self.storms = centers_df["storm_path"].values.astype(str)
+        self.s2i = {s: i for i, s in enumerate(self.storms)}
+        self.orig_xy = centers_df.set_index("storm_path").loc[self.storms, ["x","y"]].to_numpy(float)
 
-        # storm index + centers aligned to cube order
-        self.storm_paths: np.ndarray = self.cube.coords["storm_path"].values.astype(str)
-        sc = storm_centers.copy()
-        sc["storm_path"] = sc["storm_path"].astype(str)
-        sc = sc.set_index("storm_path").reindex(self.storm_paths)
-        if sc[["x", "y"]].isna().any().any():
-            missing = sc.index[sc[["x", "y"]].isna().any(axis=1)].tolist()
-            raise KeyError(f"Missing centers for storm(s): {missing}")
-        self.center_xy = sc[["x", "y"]].to_numpy(float)
+        # Default μ from watershed centroid (same as ImportanceSampler)
+        ws_stats = getattr(data, "watershed_stats", None)
+        if ws_stats is None:
+            ws_stats = {}
+        elif isinstance(ws_stats, pd.Series):
+            ws_stats = ws_stats.to_dict()
+        elif not isinstance(ws_stats, dict):
+            try:
+                ws_stats = {"x": float(ws_stats.x), "y": float(ws_stats.y)}
+            except Exception:
+                ws_stats = {}
+        if self.params.mu_x_n is None: self.params.mu_x_n = float(ws_stats.get("x", np.nan))
+        if self.params.mu_y_n is None: self.params.mu_y_n = float(ws_stats.get("y", np.nan))
+        if self.params.mu_x_w is None: self.params.mu_x_w = float(ws_stats.get("x", np.nan))
+        if self.params.mu_y_w is None: self.params.mu_y_w = float(ws_stats.get("y", np.nan))
+        if not np.isfinite(self.params.mu_x_n) or not np.isfinite(self.params.mu_y_n):
+            raise ValueError("Narrow means not set and watershed_stats[x,y] unavailable.")
+        if not np.isfinite(self.params.mu_x_w) or not np.isfinite(self.params.mu_y_w):
+            raise ValueError("Wide means not set and watershed_stats[x,y] unavailable.")
 
-        # target density (uniform over domain polygon)
-        self.xmin, self.ymin, self.xmax, self.ymax = self.domain.total_bounds
-        self.domain_area = float(self.domain.geometry.iloc[0].area)
-        if not np.isfinite(self.domain_area) or self.domain_area <= 0:
-            raise ValueError("Domain polygon area must be positive and finite.")
-        self.log_p = -np.log(self.domain_area)
+        # ---- per-storm valid sets from MASK (IDENTICAL logic to ImportanceSampler) ----
+        self.per_storm: Dict[str, Dict[str, np.ndarray | float | int]] = {}
+        qb_dummy = np.ones((self.rowsN, self.colsN))  # placeholder; real qb in _rebuild_q_base
+        flat_all = qb_dummy.ravel(order="C")
+        for name in self.storms:
+            m2d = self.mask_da.sel(storm=name).values.astype(bool)
+            flat_idx = np.flatnonzero(m2d.ravel(order="C"))
+            if flat_idx.size == 0:
+                continue
+            self.per_storm[name] = {"flat_idx": flat_idx, "count": flat_idx.size}
+        if not self.per_storm:
+            raise ValueError("All storms have empty valid sets; cannot sample.")
 
-        # build proposal components
-        self._refresh_components()
+        # ---- build q_base on MASK grid (just like ImportanceSampler) ----
+        self._rebuild_q_base()
 
-        # iteration log
+        # ---- optional precip, auto-aligned to MASK grid for adaptation (hits) ----
+        self.precip_cube = None
+        raw_precip = precip_cube if precip_cube is not None else getattr(data, "cumulative_precip", None)
+        if raw_precip is not None:
+            self.precip_cube = self._normalize_and_align_precip(raw_precip, align=align_precip, method=align_method)
+
         self.history: List[dict] = []
 
-    # ---------------------- precip normalization ----------------------
+    # ---------------------- q_base & Z_J -----------------------
+    def _rebuild_q_base(self) -> None:
+        p = self.params
+        q2d = _qbase_mixture(self.xs, self.ys, self.bounds, p, p.eps_floor)
+        self.q2d = q2d
+        self.q_flat = q2d.ravel(order="C")
+        for s, ps in self.per_storm.items():
+            qb_vals = self.q_flat[ps["flat_idx"]]
+            Zj = float(qb_vals.sum())
+            ps["qb_vals"] = qb_vals
+            ps["Z"] = Zj
 
-    @staticmethod
-    def _normalize_precip(
-        raw: xr.DataArray | xr.Dataset | Dict[str, xr.DataArray],
-        storm_centers: pd.DataFrame,
-    ) -> xr.DataArray:
-        """
-        Return xr.DataArray with dims ('storm_path','y','x') and coords {storm_path,x,y}.
-        """
+    # ------------------- precip normalization/alignment -------------------
+    def _normalize_and_align_precip(self, raw, align: bool, method: str) -> xr.DataArray:
+        # Normalize to DataArray('storm','y','x') with ascending x/y
+        def _ensure_da(da: xr.DataArray) -> xr.DataArray:
+            dims = list(da.dims)
+            if "storm" not in dims and "storm_path" in dims:
+                da = da.rename({"storm_path": "storm"})
+            if not {"storm","y","x"} <= set(da.dims):
+                raise ValueError("precip DataArray must have dims ('storm','y','x') or pass a dict[str->2D].")
+            if da["y"].values[0] > da["y"].values[-1]:
+                da = da.sortby("y")
+            if da["x"].values[0] > da["x"].values[-1]:
+                da = da.sortby("x")
+            return da.transpose("storm","y","x")
+
         if isinstance(raw, xr.Dataset):
             if "cumulative_precip" not in raw:
-                raise KeyError("Dataset must contain variable 'cumulative_precip'.")
-            cube = raw["cumulative_precip"]
+                raise ValueError("Dataset must contain variable 'cumulative_precip'.")
+            cube = _ensure_da(raw["cumulative_precip"])
         elif isinstance(raw, xr.DataArray):
-            cube = raw
+            cube = _ensure_da(raw)
         elif isinstance(raw, dict):
-            order = storm_centers["storm_path"].astype(str).tolist()
-            arrs, names = [], []
-            x_ref = y_ref = None
-            for sp in order:
-                da = raw.get(str(sp))
-                if da is None:
-                    raise KeyError(f"Storm '{sp}' missing in precip dict.")
-                # enforce same x/y across all storms
-                if x_ref is None:
-                    x_ref = da.coords["x"].values
-                    y_ref = da.coords["y"].values
+            names, arrs, xs_ref, ys_ref = [], [], None, None
+            for k, da in raw.items():
+                if not isinstance(da, xr.DataArray) or ("x" not in da.dims or "y" not in da.dims):
+                    raise ValueError("Each dict value must be xr.DataArray with dims ('y','x').")
+                if da["y"].values[0] > da["y"].values[-1]:
+                    da = da.sortby("y")
+                if da["x"].values[0] > da["x"].values[-1]:
+                    da = da.sortby("x")
+                if xs_ref is None:
+                    xs_ref, ys_ref = da["x"].values, da["y"].values
                 else:
-                    if not np.array_equal(x_ref, da.coords["x"].values) or not np.array_equal(y_ref, da.coords["y"].values):
-                        raise ValueError("All precip fields must share identical x/y coordinates.")
-                arrs.append(da)
-                names.append(str(sp))
-            cube = xr.concat(arrs, dim="storm_path").assign_coords(storm_path=np.array(names, dtype=str))
+                    if not (np.array_equal(xs_ref, da["x"].values) and np.array_equal(ys_ref, da["y"].values)):
+                        raise ValueError("All dict precip arrays must share identical x/y coords.")
+                names.append(str(k)); arrs.append(da)
+            cube = xr.concat(arrs, dim="storm").assign_coords(storm=np.array(names, dtype=str)).transpose("storm","y","x")
         else:
-            raise TypeError("Unsupported type for precip_cube. Use DataArray, Dataset, or dict[str -> DataArray(y,x)].")
+            raise TypeError("Unsupported precip type.")
 
-        # standardize dims order
-        dims = tuple(cube.dims)
-        if set(("storm_path", "y", "x")) - set(dims):
-            raise ValueError("Precip cube must have dims including 'storm_path','y','x'.")
-        cube = cube.transpose("storm_path", "y", "x")
-        return cube
+        # Filter to storms we actually use
+        cube = cube.sel(storm=cube["storm"].astype(str).isin(self.storms))
+        # Align to MASK grid if requested or required
+        xs_p = cube["x"].values; ys_p = cube["y"].values
+        same = np.array_equal(xs_p, self.xs) and np.array_equal(ys_p, self.ys)
+        if not same and not align:
+            raise ValueError("precip x/y must match mask x/y; set align_precip=True to auto-align.")
+        if not same:
+            # nearest (default) or linear interpolation onto mask grid
+            cube = cube.interp(x=("x", self.xs), y=("y", self.ys), method=method)
+        return cube.transpose("storm","y","x")
 
-    # ------------------ internal: distributions & log q --------------------
+    # ---------------------------- sampling core ----------------------------
+    def _sample_valid_cells(self, n: int, rng: np.random.Generator):
+        # 1) storms uniformly among those with ≥1 valid cell
+        storms = self.storms
+        S = storms.size
+        chosen_idx = rng.integers(0, S, size=n)
+        chosen_storms = storms[chosen_idx]
 
-    def _refresh_components(self):
-        """(Re)build truncated marginals and copulas from current params."""
-        p = self.params
-        eps = 1e-12
+        # 2) pick a valid cell per storm, ∝ q_base on that storm's V_J
+        chosen_flat = np.empty(n, dtype=int)
+        w_raw = np.empty(n, dtype=float)
 
-        # Narrow
-        a_xn = (self.xmin - p.mu_x_n) / p.sd_x_n
-        b_xn = (self.xmax - p.mu_x_n) / p.sd_x_n
-        a_yn = (self.ymin - p.mu_y_n) / p.sd_y_n
-        b_yn = (self.ymax - p.mu_y_n) / p.sd_y_n
-        self.tx_n = truncnorm(a_xn, b_xn, loc=p.mu_x_n, scale=p.sd_x_n)
-        self.ty_n = truncnorm(a_yn, b_yn, loc=p.mu_y_n, scale=p.sd_y_n)
+        uniq, inv = np.unique(chosen_storms, return_inverse=True)
+        for k, sname in enumerate(uniq):
+            take = np.where(inv == k)[0]
+            ps = self.per_storm[sname]
+            flat_idx = ps["flat_idx"]
+            qb_vals = ps["qb_vals"]; Zj = ps["Z"]; cnt = ps["count"]
 
-        # Wide
-        a_xw = (self.xmin - p.mu_x_w) / p.sd_x_w
-        b_xw = (self.xmax - p.mu_x_w) / p.sd_x_w
-        a_yw = (self.ymin - p.mu_y_w) / p.sd_y_w
-        b_yw = (self.ymax - p.mu_y_w) / p.sd_y_w
-        self.tx_w = truncnorm(a_xw, b_xw, loc=p.mu_x_w, scale=p.sd_x_w)
-        self.ty_w = truncnorm(a_yw, b_yw, loc=p.mu_y_w, scale=p.sd_y_w)
+            p = qb_vals / (Zj if Zj > 0.0 else np.finfo(float).tiny)
+            idx_local = rng.choice(qb_vals.size, size=take.size, replace=True, p=p)
+            chosen_flat[take] = flat_idx[idx_local]
+            q_at_p = qb_vals[idx_local]
+            w_raw[take] = Zj / (float(cnt) * q_at_p)
 
-        # Copulas (Gaussian on latent normals)
-        self.cov_n = np.array([[1.0, p.rho_n], [p.rho_n, 1.0]], dtype=float)
-        self.cov_w = np.array([[1.0, p.rho_w], [p.rho_w, 1.0]], dtype=float)
-        self.L_n = np.linalg.cholesky(self.cov_n + eps * np.eye(2))
-        self.L_w = np.linalg.cholesky(self.cov_w + eps * np.eye(2))
-        self.phi_n = multivariate_normal(mean=[0.0, 0.0], cov=self.cov_n)
-        self.phi_w = multivariate_normal(mean=[0.0, 0.0], cov=self.cov_w)
+        return chosen_storms, chosen_flat, w_raw
 
-    def _log_q_mixture(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """log q(x,y) via log-sum-exp over (narrow, wide)."""
-        eps = 1e-12
-        mix = self.params.mix
+    def _flat_to_xy(self, flat_idx: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        ii = flat_idx // self.colsN
+        jj = flat_idx % self.colsN
+        return self.xs[jj], self.ys[ii]
 
-        # Narrow terms
-        Fx_n = np.clip(self.tx_n.cdf(x), eps, 1 - eps); Fy_n = np.clip(self.ty_n.cdf(y), eps, 1 - eps)
-        zx_n = norm.ppf(Fx_n); zy_n = norm.ppf(Fy_n)
-        log_phi_n = self.phi_n.logpdf(np.column_stack([zx_n, zy_n]))
-        log_phi_std_n = norm.logpdf(zx_n) + norm.logpdf(zy_n)
-        log_fx_n = np.log(np.clip(self.tx_n.pdf(x), eps, np.inf))
-        log_fy_n = np.log(np.clip(self.ty_n.pdf(y), eps, np.inf))
-        log_q_n = (log_phi_n - log_phi_std_n) + (log_fx_n + log_fy_n)
+    # ------------------------- depths / hits (optional) ---------------------
+    def _depths_for(self, chosen_storms: np.ndarray, chosen_flat: np.ndarray) -> np.ndarray:
+        if self.precip_cube is None:
+            return np.zeros(chosen_storms.size, dtype=float)
 
-        # Wide terms
-        Fx_w = np.clip(self.tx_w.cdf(x), eps, 1 - eps); Fy_w = np.clip(self.ty_w.cdf(y), eps, 1 - eps)
-        zx_w = norm.ppf(Fx_w); zy_w = norm.ppf(Fy_w)
-        log_phi_w = self.phi_w.logpdf(np.column_stack([zx_w, zy_w]))
-        log_phi_std_w = norm.logpdf(zx_w) + norm.logpdf(zy_w)
-        log_fx_w = np.log(np.clip(self.tx_w.pdf(x), eps, np.inf))
-        log_fy_w = np.log(np.clip(self.ty_w.pdf(y), eps, np.inf))
-        log_q_w = (log_phi_w - log_phi_std_w) + (log_fx_w + log_fy_w)
+        depths = np.empty(chosen_storms.size, dtype=float)
+        ii = chosen_flat // self.colsN
+        jj = chosen_flat % self.colsN
 
-        a = np.log(mix + eps) + log_q_n
-        b = np.log(1.0 - mix + eps) + log_q_w
-        m = np.maximum(a, b)
-        return m + np.log(np.exp(a - m) + np.exp(b - m))
+        # origin indices by nearest grid cell
+        x0 = self.orig_xy[:, 0]; y0 = self.orig_xy[:, 1]
+        j0 = np.argmin(np.abs(self.xs[None, :] - x0[:, None]), axis=1)
+        i0 = np.argmin(np.abs(self.ys[None, :] - y0[:, None]), axis=1)
 
-    # -------------------- internal: sample (x,y) inside ---------------------
+        for n, s in enumerate(chosen_storms):
+            k = self.s2i[str(s)]
+            di = int(ii[n] - i0[k])
+            dj = int(jj[n] - j0[k])
 
-    def _sample_xy(self, n: int, rng: Optional[np.random.Generator] = None) -> Tuple[np.ndarray, np.ndarray]:
-        """Sample n points from the mixture and keep only those inside the domain polygon."""
-        rng = self.rng if rng is None else rng
-        poly = self.domain.geometry.iloc[0]
-        eps = 1e-12
-        mix = self.params.mix
+            arr = self.precip_cube.isel(storm=k).values
+            shifted = np.roll(arr, shift=(di, dj), axis=(0, 1))
+            if di > 0:   shifted[:di, :] = 0
+            elif di < 0: shifted[di:, :] = 0
+            if dj > 0:   shifted[:, :dj] = 0
+            elif dj < 0: shifted[:, dj:] = 0
 
-        xs, ys = [], []
-        batch = max(256, n)
-        tries = 0
-        while len(xs) < n and tries < 200:
-            tries += 1
-            choose_n = rng.random(batch) < mix
-            x = np.empty(batch, float); y = np.empty(batch, float)
+            m = np.where(np.isnan(shifted), 0.0, shifted)
+            cnt = np.count_nonzero(m) if np.count_nonzero(m) > 0 else m.size
+            depths[n] = float(m.sum() / cnt)
 
-            if choose_n.any():
-                u = np.clip(rng.random((choose_n.sum(), 2)), eps, 1 - eps)
-                z = norm.ppf(u); zc = z @ self.L_n.T; uc = norm.cdf(zc)
-                x[choose_n] = self.tx_n.ppf(np.clip(uc[:, 0], eps, 1 - eps))
-                y[choose_n] = self.ty_n.ppf(np.clip(uc[:, 1], eps, 1 - eps))
-            if (~choose_n).any():
-                u = np.clip(rng.random(((~choose_n).sum(), 2)), eps, 1 - eps)
-                z = norm.ppf(u); zc = z @ self.L_w.T; uc = norm.cdf(zc)
-                x[~choose_n] = self.tx_w.ppf(np.clip(uc[:, 0], eps, 1 - eps))
-                y[~choose_n] = self.ty_w.ppf(np.clip(uc[:, 1], eps, 1 - eps))
+        return depths
 
-            gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(x, y), crs=self.domain.crs)
-            gdf = gdf[gdf.within(poly)]
-            xs.extend(gdf.geometry.x.to_numpy())
-            ys.extend(gdf.geometry.y.to_numpy())
-
-        xs = np.asarray(xs[:n], float); ys = np.asarray(ys[:n], float)
-        return xs, ys
-
-    # --------------- internal: one-sample depth + storm_path ----------------
-
-    def _depth_and_storm_for_sample(self, x_new: float, y_new: float, rng: np.random.Generator) -> Tuple[float, str]:
-        k = int(rng.integers(low=0, high=len(self.storm_paths)))
-        storm_path = str(self.storm_paths[k])
-        x_orig, y_orig = self.center_xy[k, :]
-
-        dx_cells = int(round((x_new - x_orig) / self.dx))
-        dy_cells = int(round((y_new - y_orig) / self.dy))
-
-        arr = self.cube.isel(storm_path=k).values  # (ny, nx)
-        shifted = np.roll(arr, shift=(dy_cells, dx_cells), axis=(0, 1))
-
-        if dy_cells > 0:   shifted[:dy_cells, :] = 0
-        elif dy_cells < 0: shifted[dy_cells:, :] = 0
-        if dx_cells > 0:   shifted[:, :dx_cells] = 0
-        elif dx_cells < 0: shifted[:, dx_cells:] = 0
-
-        masked = np.where(self.ws_mask, shifted, 0.0)
-        masked = np.where(np.isnan(masked), 0.0, masked)
-        precip_avg = float(masked.sum() / self.ws_npix)
-        return precip_avg, storm_path
-
-    def _depths_and_storms(self, x: np.ndarray, y: np.ndarray, rng: np.random.Generator) -> Tuple[np.ndarray, List[str]]:
-        n = x.size
-        depths = np.empty(n, float)
-        storms: List[str] = [None] * n
-        for i in range(n):
-            depths[i], storms[i] = self._depth_and_storm_for_sample(x[i], y[i], rng)
-        return depths, storms
-
-    # --------------------------- snapshot helper ----------------------------
-
-    def _snapshot(
-        self,
-        it: int,
-        ess: float = np.nan,
-        hit_raw: float = np.nan,
-        hit_w: float = np.nan,
-        updated: int = 0,
-        n: int = 0,
-    ) -> dict:
-        p = self.params
-        return dict(
-            iter=it,
-            mix=p.mix,
-            mu_x_n=p.mu_x_n, mu_y_n=p.mu_y_n,
-            sd_x_n=p.sd_x_n, sd_y_n=p.sd_y_n,
-            mu_x_w=p.mu_x_w, mu_y_w=p.mu_y_w,
-            sd_x_w=p.sd_x_w, sd_y_w=p.sd_y_w,
-            rho_n=p.rho_n, rho_w=p.rho_w,
-            ess=ess, hit_rate_raw=hit_raw, hit_rate_weighted=hit_w,
-            updated=updated, n=n,
-        )
-
-    # ------------------------- adaptation routine --------------------------
-
+    # -------------------------------- adapt --------------------------------
     def adapt(self, num_iterations: int, samples_per_iter: int) -> pd.DataFrame:
         """
-        No num_realizations here. Single-stream adaptation.
+        Single-stream adaptation over 'num_iterations'.
+        Requires precip_cube to compute depths/hits.
+
+        history rows contain:
+        iter, n, ess, hit_raw, hit_w, updated,
+        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n
         """
+        if self.precip_cube is None:
+            raise ValueError("adapt() requires precip_cube to compute hits/depths.")
+
+        p = self.params
         self.history = []
-        self.history.append(self._snapshot(it=0))
+
+        # helper to append a row with current params + diagnostics
+        def _push(iter_idx: int, ess: float | None, hit_raw: float | None,
+                hit_w: float | None, updated: int, n: int | None):
+            self.history.append(dict(
+                iter=iter_idx, n=n,
+                ess=None if ess is None else float(ess),
+                hit_raw=None if hit_raw is None else float(hit_raw),
+                hit_w=None if hit_w is None else float(hit_w),
+                updated=int(updated),
+
+                # snapshot of ALL updated params
+                mix=float(p.mix),
+                mu_x_n=float(p.mu_x_n),
+                mu_y_n=float(p.mu_y_n),
+                sd_x_n=float(p.sd_x_n),
+                sd_y_n=float(p.sd_y_n),
+                rho_n=float(p.rho_n),
+            ))
+
+        # log initial state
+        _push(iter_idx=0, ess=None, hit_raw=None, hit_w=None, updated=0, n=None)
 
         for t in range(1, num_iterations + 1):
-            # 1) sample xy
-            x, y = self._sample_xy(samples_per_iter)
+            # 1) sample valid cells
+            storms, flat_idx, w_raw = self._sample_valid_cells(samples_per_iter, self.rng)
 
-            # 2) weights & depths
-            log_q = self._log_q_mixture(x, y)
-            w = np.exp(self.log_p - log_q)  # unnormalized
-            sumW = w.sum()
-            w_norm = (w / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w, 1.0 / len(w))
+            # normalize weights (self-normalized within iter)
+            sumW = float(np.sum(w_raw))
+            w = (w_raw / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w_raw, 1.0 / len(w_raw))
 
-            depths, _ = self._depths_and_storms(x, y, self.rng)
+            # 2) coords and depths
+            x_new, y_new = self._flat_to_xy(flat_idx)
+            depths = self._depths_for(storms, flat_idx)
             hits = (depths > 0).astype(int)
 
             # diagnostics
-            ess = float(1.0 / np.sum(w_norm ** 2))
+            ess = float(1.0 / np.sum(w ** 2))
             hit_rate_raw = float(hits.mean())
             gamma = 1e-6
-            p_hit_w = float((np.sum(w_norm * hits) + gamma) / (1.0 + 2.0 * gamma))
+            p_hit_w = float((np.sum(w * hits) + gamma) / (1.0 + 2.0 * gamma))
 
-            # 3) update mix (damped EM-style on weighted hit prob, clamped)
-            p = self.params
+            # 3) update mixture weight on NARROW
             beta_new = (1.0 - p.lambda_mix) * p.mix + p.lambda_mix * p_hit_w
             p.mix = float(np.clip(beta_new, p.beta_floor, p.beta_ceil))
 
-            # 4) moment matching on *hits only* (tempered), with EMA smoothing
+            # 4) moment match (narrow) on hit samples (tempered by depth)
             idx = np.nonzero(hits)[0]
             updated = 0
             if idx.size > 10:
-                w_hit = w_norm[idx] * (depths[idx] + p.K_temper)
+                w_hit = w[idx] * (depths[idx] + p.K_temper)
                 s = w_hit.sum()
                 w_hit = (w_hit / s) if (np.isfinite(s) and s > 0) else np.full_like(w_hit, 1.0 / len(w_hit))
 
-                xh = x[idx]; yh = y[idx]
-
-                # (a) Means/vars in (x,y) for NARROW
+                xh = x_new[idx]; yh = y_new[idx]
                 mu_x_new = float(np.sum(w_hit * xh))
                 mu_y_new = float(np.sum(w_hit * yh))
                 var_x_new = float(np.sum(w_hit * (xh - mu_x_new) ** 2) + p.eps_var)
@@ -361,10 +388,11 @@ class AdaptiveMixtureSampler:
                 p.sd_x_n = float(np.sqrt(max(vx, p.eps_var)))
                 p.sd_y_n = float(np.sqrt(max(vy, p.eps_var)))
 
-                # (b) Copula correlation update on latent normals
+                # correlation via latent normals
                 eps = 1e-12
-                u_x = np.clip(self.tx_n.cdf(xh), eps, 1 - eps)
-                u_y = np.clip(self.ty_n.cdf(yh), eps, 1 - eps)
+                tx_n, ty_n = _truncnorm_objs(self.bounds, p.mu_x_n, p.mu_y_n, p.sd_x_n, p.sd_y_n)
+                u_x = np.clip(tx_n.cdf(xh), eps, 1 - eps)
+                u_y = np.clip(ty_n.cdf(yh), eps, 1 - eps)
                 z_x = norm.ppf(u_x); z_y = norm.ppf(u_y)
 
                 mzx = float(np.sum(w_hit * z_x)); mzy = float(np.sum(w_hit * z_y))
@@ -372,91 +400,72 @@ class AdaptiveMixtureSampler:
                 vzy = float(np.sum(w_hit * (z_y - mzy) ** 2) + p.eps_var)
                 cov_zy = float(np.sum(w_hit * (z_x - mzx) * (z_y - mzy)))
                 corr_hat = cov_zy / (np.sqrt(vzx) * np.sqrt(vzy))
-
-                rho_new = p.alpha * corr_hat + (1 - p.alpha) * p.rho_n
-                p.rho_n = float(np.clip(rho_new, -0.95, 0.95))
-
+                p.rho_n = float(np.clip(p.alpha * corr_hat + (1 - p.alpha) * p.rho_n, -0.95, 0.95))
                 updated = 1
 
-            # 5) refresh for next iter
-            self._refresh_components()
+            # 5) rebuild q_base for next iteration
+            self._rebuild_q_base()
 
-            # 6) log snapshot
-            self.history.append(self._snapshot(
-                it=t, ess=ess, hit_raw=hit_rate_raw, hit_w=p_hit_w, updated=updated, n=samples_per_iter
-            ))
+            # 6) log a full snapshot with diagnostics
+            _push(iter_idx=t, ess=ess, hit_raw=hit_rate_raw, hit_w=p_hit_w, updated=updated, n=samples_per_iter)
 
         return pd.DataFrame(self.history)
 
-    # ----------------------------- final sampling ---------------------------
+
+    # ------------------------------ final draw ------------------------------
+    def sample_final(self, n: int, num_realizations: int = 1,
+                     with_depths: bool = True,
+                     seed: Optional[int] = None) -> pd.DataFrame:
+        """
+        Final draws from the adapted proposal.
+        Uses the SAME valid-cell logic and weights as in the adapt loop.
+        Distinct, stored seed per realization.
+        """
+        parent_ss = np.random.SeedSequence(seed)
+        child_seeds = parent_ss.spawn(num_realizations)
+
+        frames = []
+        for r_idx, child_ss in enumerate(child_seeds, start=1):
+            realization_seed = int(child_ss.generate_state(1, dtype=np.uint64)[0])
+            rng = np.random.default_rng(child_ss)
+
+            storms, flat_idx, w_raw = self._sample_valid_cells(n, rng)
+            s = float(np.sum(w_raw))
+            w = (w_raw / s) if (np.isfinite(s) and s > 0) else np.full_like(w_raw, 1.0 / len(w_raw))
+
+            newx, newy = self._flat_to_xy(flat_idx)
+            kidx = np.array([self.s2i[s] for s in storms], dtype=int)
+            ox = self.orig_xy[kidx, 0]; oy = self.orig_xy[kidx, 1]
+
+            depths = self._depths_for(storms, flat_idx) if with_depths else np.zeros(n, dtype=float)
+
+            df = pd.DataFrame({
+                "realization": r_idx,
+                "realization_seed": realization_seed,
+                "event_id": np.arange(1, n + 1, dtype=int),
+                "storm_path": storms,
+                "x": ox, "y": oy,
+                "newx": newx, "newy": newy,
+                "delx": newx - ox, "dely": newy - oy,
+                "weight_raw": w_raw,
+                "weight": w,
+                "precip_avg_mm": depths,
+            })
+            frames.append(df)
+
+        out = pd.concat(frames, ignore_index=True)
+        if with_depths:
+            out = self._add_exc_prb_per_rep(out)
+        return out
 
     @staticmethod
     def _add_exc_prb_per_rep(df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df["exc_prb"] = np.nan
-        for rep, grp in df.groupby("rep", dropna=False):
+        for realization, grp in df.groupby("realization", dropna=False):
             w = grp["weight"].to_numpy(float)
             w = w / np.sum(w) if np.sum(w) > 0 else np.full_like(w, 1.0/len(w))
             order = np.argsort(grp["precip_avg_mm"].to_numpy())[::-1]
             idx_sorted = grp.index.to_numpy()[order]
             df.loc[idx_sorted, "exc_prb"] = np.cumsum(w[order])
         return df
-
-    def sample_final(self, n: int, num_realizations: int = 1, with_depths: bool = True, seed: Optional[int] = None) -> pd.DataFrame:
-        """
-        Draw `n` samples per realization from the FINAL adapted proposal.
-        If num_realizations > 1, returns stacked reps with independent RNGs and per-rep weights/exceedance.
-        """
-        ss = np.random.SeedSequence(seed)
-        child_seeds = ss.spawn(num_realizations)
-
-        frames = []
-        for r_idx, cs in enumerate(child_seeds, start=1):
-            rng = np.random.default_rng(cs.generate_state(1, dtype=np.uint64)[0])
-
-            # 1) sample centers
-            x, y = self._sample_xy(n, rng=rng)
-
-            # 2) importance weights (normalize per rep)
-            log_q = self._log_q_mixture(x, y)
-            w = np.exp(self.log_p - log_q)
-            s = w.sum()
-            w = (w / s) if (np.isfinite(s) and s > 0) else np.full_like(w, 1.0 / len(w))
-
-            # 3) depths + storms
-            if with_depths:
-                depths, paths = self._depths_and_storms(x, y, rng)
-            else:
-                depths = np.zeros(n, dtype=float)
-                idx = rng.integers(low=0, high=len(self.storm_paths), size=n)
-                paths = [str(self.storm_paths[k]) for k in idx]
-
-            # 4) assemble
-            df = pd.DataFrame({
-                "rep": r_idx,
-                "event_id": np.arange(1, n + 1, dtype=int),
-                "x": x, "y": y,
-                "weight": w,
-                "storm_path": paths,
-                "precip_avg_mm": depths,
-            })
-            frames.append(df)
-
-        out = pd.concat(frames, ignore_index=True)
-
-        # 5) per-rep exceedance probabilities
-        if with_depths:
-            out = self._add_exc_prb_per_rep(out)
-
-        return out
-
-    # ---------------------- helper: weighted frequency ----------------------
-
-    @staticmethod
-    def weighted_frequency(depths: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        order = np.argsort(depths)[::-1]
-        d = depths[order]
-        w = weights[order]
-        w = w / np.sum(w) if np.sum(w) > 0 else np.full_like(w, 1.0 / len(w))
-        pp = np.cumsum(w)
-        return d, pp
