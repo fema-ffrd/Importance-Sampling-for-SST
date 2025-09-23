@@ -7,6 +7,9 @@ import pandas as pd
 import xarray as xr
 import geopandas as gpd
 from scipy.stats import truncnorm, norm
+from shapely.geometry import mapping
+from rasterio.features import geometry_mask
+from affine import Affine
 
 # ----------------------------- params -----------------------------
 @dataclass
@@ -118,7 +121,27 @@ class AdaptiveMixtureSampler:
         self.colsN = len(self.xs)
         self.rowsN = len(self.ys)
         self.bounds = (float(self.xs[0]), float(self.ys[0]), float(self.xs[-1]), float(self.ys[-1]))
+        # --- grid spacing & affine (centers -> upper-left origin), like StormDepthProcessor
+        self.dx = float(np.mean(np.diff(self.xs)))
+        self.dy = float(np.mean(np.diff(self.ys)))
+        self.transform = (
+            Affine.translation(self.xs[0] - self.dx/2.0, self.ys[0] - self.dy/2.0)
+            * Affine.scale(self.dx, self.dy)
+        )
 
+        # --- watershed mask (required to match StormDepthProcessor)
+        if not hasattr(data, "watershed_gdf"):
+            raise ValueError("`data` must have attribute `watershed_gdf` to compute watershed-mean depths.")
+        ws_gdf: gpd.GeoDataFrame = data.watershed_gdf
+        self.watershed_mask = geometry_mask(
+            geometries=[mapping(geom) for geom in ws_gdf.geometry],
+            out_shape=(self.rowsN, self.colsN),
+            transform=self.transform,
+            invert=True,
+        )
+
+        # configurable edge handling to mimic StormDepthProcessor
+        self.zero_pad_edges = True  # or make this a __init__ kwarg if you want to toggle
         # Centers table filtered to mask storms (exactly like ImportanceSampler)
         centers_df: pd.DataFrame = data.storm_centers.copy()
         need_cols = {"storm_path","x","y"}
@@ -180,11 +203,33 @@ class AdaptiveMixtureSampler:
 
     # ---------------------- q_base & Z_J -----------------------
     def _rebuild_q_base(self) -> None:
+        """
+        Build q_base and per-storm Z_J, and also cache component grids q_n, q_w
+        so we can compute responsibilities quickly at sampled cells.
+        """
         p = self.params
-        q2d = _qbase_mixture(self.xs, self.ys, self.bounds, p, p.eps_floor)
-        self.q2d = q2d
-        self.q_flat = q2d.ravel(order="C")
-        for s, ps in self.per_storm.items():
+        # component grids
+        self.qn2d = _qbase_gaussian_copula(
+            self.xs, self.ys, self.bounds,
+            mx=p.mu_x_n, my=p.mu_y_n, sx=p.sd_x_n, sy=p.sd_y_n, rho=p.rho_n,
+            eps_floor=p.eps_floor
+        )
+        self.qw2d = _qbase_gaussian_copula(
+            self.xs, self.ys, self.bounds,
+            mx=p.mu_x_w, my=p.mu_y_w, sx=p.sd_x_w, sy=p.sd_y_w, rho=p.rho_w,
+            eps_floor=p.eps_floor
+        )
+        # mixture on grid
+        self.q2d = np.maximum(p.mix * self.qn2d + (1.0 - p.mix) * self.qw2d, p.eps_floor)
+
+        # flatten caches for fast indexing at sampled cells
+        self.q_flat  = self.q2d.ravel(order="C")
+        self.qn_flat = self.qn2d.ravel(order="C")
+        self.qw_flat = self.qw2d.ravel(order="C")
+
+        # Z_J per storm = sum of q_base over that storm's valid set V_J
+        for name in self.per_storm.keys():
+            ps = self.per_storm[name]
             qb_vals = self.q_flat[ps["flat_idx"]]
             Zj = float(qb_vals.sum())
             ps["qb_vals"] = qb_vals
@@ -276,110 +321,149 @@ class AdaptiveMixtureSampler:
 
     # ------------------------- depths / hits (optional) ---------------------
     def _depths_for(self, chosen_storms: np.ndarray, chosen_flat: np.ndarray) -> np.ndarray:
+        """
+        Compute watershed-mean cumulative precip exactly like StormDepthProcessor:
+        - integer cell shifts from physical offsets using dx,dy and round(...)
+        - zero-pad rolled edges
+        - mean over watershed mask pixels
+        - treat NaNs as 0.0 when zero_pad_edges is True (same as processor)
+        """
         if self.precip_cube is None:
             return np.zeros(chosen_storms.size, dtype=float)
 
         depths = np.empty(chosen_storms.size, dtype=float)
+
+        # flatten -> (i,j) -> (newx,newy)
         ii = chosen_flat // self.colsN
         jj = chosen_flat % self.colsN
+        newx = self.xs[jj]
+        newy = self.ys[ii]
 
-        # origin indices by nearest grid cell
-        x0 = self.orig_xy[:, 0]; y0 = self.orig_xy[:, 1]
-        j0 = np.argmin(np.abs(self.xs[None, :] - x0[:, None]), axis=1)
-        i0 = np.argmin(np.abs(self.ys[None, :] - y0[:, None]), axis=1)
+        # original centers per storm
+        x0 = self.orig_xy[:, 0]
+        y0 = self.orig_xy[:, 1]
 
         for n, s in enumerate(chosen_storms):
             k = self.s2i[str(s)]
-            di = int(ii[n] - i0[k])
-            dj = int(jj[n] - j0[k])
+            # integer cell offsets computed from physical deltas (round(...) like processor)
+            dx_cells = int(round((float(newx[n]) - float(x0[k])) / self.dx))
+            dy_cells = int(round((float(newy[n]) - float(y0[k])) / self.dy))
 
-            arr = self.precip_cube.isel(storm=k).values
-            shifted = np.roll(arr, shift=(di, dj), axis=(0, 1))
-            if di > 0:   shifted[:di, :] = 0
-            elif di < 0: shifted[di:, :] = 0
-            if dj > 0:   shifted[:, :dj] = 0
-            elif dj < 0: shifted[:, dj:] = 0
+            # take storm precip field and roll
+            arr = self.precip_cube.isel(storm=k).values  # (rows, cols)
+            shifted = np.roll(arr, shift=(dy_cells, dx_cells), axis=(0, 1))
 
-            m = np.where(np.isnan(shifted), 0.0, shifted)
-            cnt = np.count_nonzero(m) if np.count_nonzero(m) > 0 else m.size
-            depths[n] = float(m.sum() / cnt)
+            # cut rolled edges exactly like processor
+            if self.zero_pad_edges:
+                if dy_cells > 0:   shifted[:dy_cells, :] = 0.0
+                elif dy_cells < 0: shifted[dy_cells:, :] = 0.0
+                if dx_cells > 0:   shifted[:, :dx_cells] = 0.0
+                elif dx_cells < 0: shifted[:, dx_cells:] = 0.0
+            else:
+                if dy_cells > 0:   shifted[:dy_cells, :] = np.nan
+                elif dy_cells < 0: shifted[dy_cells:, :] = np.nan
+                if dx_cells > 0:   shifted[:, :dx_cells] = np.nan
+                elif dx_cells < 0: shifted[:, dx_cells:] = np.nan
+
+            # select watershed pixels (the key difference)
+            vals = shifted[self.watershed_mask]
+
+            if self.zero_pad_edges:
+                # treat residual NaNs as 0.0 and take the mean over the mask
+                depths[n] = float(np.nan_to_num(vals, nan=0.0).mean()) if vals.size else np.nan
+            else:
+                depths[n] = np.nan if np.isnan(vals).any() else (float(vals.mean()) if vals.size else np.nan)
 
         return depths
 
-    # -------------------------------- adapt --------------------------------
-    def adapt(self, num_iterations: int, samples_per_iter: int) -> pd.DataFrame:
-        """
-        Single-stream adaptation over 'num_iterations'.
-        Requires precip_cube to compute depths/hits.
 
-        history rows contain:
-        iter, n, ess, hit_raw, hit_w, updated,
-        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n
+    # -------------------------------- adapt --------------------------------
+    def adapt(self,
+            num_iterations: int,
+            samples_per_iter: int,
+            depth_threshold: float = 0.0) -> pd.DataFrame:
+        """
+        Adaptive loop with responsibilities and EM-style beta update.
+
+        - depth_threshold: a sample is considered a "hit" if depth >= threshold
+        - history logs: iter, n, ess, perplexity, hit_raw, hit_w, updated,
+                        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n
         """
         if self.precip_cube is None:
-            raise ValueError("adapt() requires precip_cube to compute hits/depths.")
+            raise ValueError("adapt() requires precip_cube to compute depths/hits.")
 
         p = self.params
         self.history = []
 
-        # helper to append a row with current params + diagnostics
-        def _push(iter_idx: int, ess: float | None, hit_raw: float | None,
-                hit_w: float | None, updated: int, n: int | None):
+        def _push(iter_idx, ess, perp, hit_raw, hit_w, updated, n):
             self.history.append(dict(
                 iter=iter_idx, n=n,
                 ess=None if ess is None else float(ess),
+                perplexity=None if perp is None else float(perp),
                 hit_raw=None if hit_raw is None else float(hit_raw),
                 hit_w=None if hit_w is None else float(hit_w),
                 updated=int(updated),
-
-                # snapshot of ALL updated params
                 mix=float(p.mix),
-                mu_x_n=float(p.mu_x_n),
-                mu_y_n=float(p.mu_y_n),
-                sd_x_n=float(p.sd_x_n),
-                sd_y_n=float(p.sd_y_n),
+                mu_x_n=float(p.mu_x_n), mu_y_n=float(p.mu_y_n),
+                sd_x_n=float(p.sd_x_n), sd_y_n=float(p.sd_y_n),
                 rho_n=float(p.rho_n),
             ))
 
-        # log initial state
-        _push(iter_idx=0, ess=None, hit_raw=None, hit_w=None, updated=0, n=None)
+        # log initial snapshot
+        _push(iter_idx=0, ess=None, perp=None, hit_raw=None, hit_w=None, updated=0, n=None)
 
         for t in range(1, num_iterations + 1):
-            # 1) sample valid cells
+            # 1) sample valid cells and compute self-normalized weights
             storms, flat_idx, w_raw = self._sample_valid_cells(samples_per_iter, self.rng)
-
-            # normalize weights (self-normalized within iter)
             sumW = float(np.sum(w_raw))
-            w = (w_raw / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w_raw, 1.0 / len(w_raw))
+            w_tilde = (w_raw / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w_raw, 1.0 / len(w_raw))
 
-            # 2) coords and depths
+            # basic diagnostics
+            ess = float(1.0 / np.sum(w_tilde ** 2))
+            # normalized perplexity = exp(H) / N
+            with np.errstate(divide='ignore', invalid='ignore'):
+                H = -np.nansum(w_tilde * np.log(np.maximum(w_tilde, 1e-300)))
+            perplexity = float(np.exp(H) / len(w_tilde))
+
+            # 2) coords, depths, hits
             x_new, y_new = self._flat_to_xy(flat_idx)
             depths = self._depths_for(storms, flat_idx)
-            hits = (depths > 0).astype(int)
-
-            # diagnostics
-            ess = float(1.0 / np.sum(w ** 2))
+            hits = (depths >= depth_threshold).astype(int)
             hit_rate_raw = float(hits.mean())
             gamma = 1e-6
-            p_hit_w = float((np.sum(w * hits) + gamma) / (1.0 + 2.0 * gamma))
+            p_hit_w = float((np.sum(w_tilde * hits) + gamma) / (1.0 + 2.0 * gamma))
 
-            # 3) update mixture weight on NARROW
-            beta_new = (1.0 - p.lambda_mix) * p.mix + p.lambda_mix * p_hit_w
+            # 3) responsibilities under current mixture (Rao-Blackwellization)
+            qn_at = self.qn_flat[flat_idx]        # q_n at sampled cells
+            qw_at = self.qw_flat[flat_idx]        # q_w at sampled cells
+            mix = p.mix
+            denom = mix * qn_at + (1.0 - mix) * qw_at
+            # ensure strictly positive denom
+            denom = np.maximum(denom, p.eps_floor)
+            r_n = (mix * qn_at) / denom           # responsibility for narrow
+            # r_w = 1 - r_n
+
+            # 4) EM-style update for beta (mixture weight), then smooth & clamp
+            beta_em = float(np.sum(w_tilde * r_n))
+            beta_new = (1.0 - p.lambda_mix) * mix + p.lambda_mix * beta_em
             p.mix = float(np.clip(beta_new, p.beta_floor, p.beta_ceil))
 
-            # 4) moment match (narrow) on hit samples (tempered by depth)
-            idx = np.nonzero(hits)[0]
-            updated = 0
-            if idx.size > 10:
-                w_hit = w[idx] * (depths[idx] + p.K_temper)
-                s = w_hit.sum()
-                w_hit = (w_hit / s) if (np.isfinite(s) and s > 0) else np.full_like(w_hit, 1.0 / len(w_hit))
+            # 5) Moment-match the narrow component using RB weights and reward
+            #    reward: depth-tempered; optionally zero out below threshold (keeps your semantics)
+            reward = depths + p.K_temper
+            reward = np.where(depths >= depth_threshold, reward, 0.0)
 
-                xh = x_new[idx]; yh = y_new[idx]
-                mu_x_new = float(np.sum(w_hit * xh))
-                mu_y_new = float(np.sum(w_hit * yh))
-                var_x_new = float(np.sum(w_hit * (xh - mu_x_new) ** 2) + p.eps_var)
-                var_y_new = float(np.sum(w_hit * (yh - mu_y_new) ** 2) + p.eps_var)
+            rb_w = w_tilde * r_n * reward
+            s_rb = float(np.sum(rb_w))
+            updated = 0
+            if s_rb > 0 and np.count_nonzero(reward) > 10:
+                rb_w /= s_rb
+
+                # means & variances in (x,y)
+                mu_x_new = float(np.sum(rb_w * x_new))
+                mu_y_new = float(np.sum(rb_w * y_new))
+                var_x_new = float(np.sum(rb_w * (x_new - mu_x_new) ** 2) + p.eps_var)
+                var_y_new = float(np.sum(rb_w * (y_new - mu_y_new) ** 2) + p.eps_var)
 
                 p.mu_x_n = p.alpha * mu_x_new + (1 - p.alpha) * p.mu_x_n
                 p.mu_y_n = p.alpha * mu_y_new + (1 - p.alpha) * p.mu_y_n
@@ -388,26 +472,29 @@ class AdaptiveMixtureSampler:
                 p.sd_x_n = float(np.sqrt(max(vx, p.eps_var)))
                 p.sd_y_n = float(np.sqrt(max(vy, p.eps_var)))
 
-                # correlation via latent normals
+                # correlation via latent normals under current narrow marginals
                 eps = 1e-12
                 tx_n, ty_n = _truncnorm_objs(self.bounds, p.mu_x_n, p.mu_y_n, p.sd_x_n, p.sd_y_n)
-                u_x = np.clip(tx_n.cdf(xh), eps, 1 - eps)
-                u_y = np.clip(ty_n.cdf(yh), eps, 1 - eps)
+                u_x = np.clip(tx_n.cdf(x_new), eps, 1 - eps)
+                u_y = np.clip(ty_n.cdf(y_new), eps, 1 - eps)
                 z_x = norm.ppf(u_x); z_y = norm.ppf(u_y)
 
-                mzx = float(np.sum(w_hit * z_x)); mzy = float(np.sum(w_hit * z_y))
-                vzx = float(np.sum(w_hit * (z_x - mzx) ** 2) + p.eps_var)
-                vzy = float(np.sum(w_hit * (z_y - mzy) ** 2) + p.eps_var)
-                cov_zy = float(np.sum(w_hit * (z_x - mzx) * (z_y - mzy)))
+                mzx = float(np.sum(rb_w * z_x)); mzy = float(np.sum(rb_w * z_y))
+                vzx = float(np.sum(rb_w * (z_x - mzx) ** 2) + p.eps_var)
+                vzy = float(np.sum(rb_w * (z_y - mzy) ** 2) + p.eps_var)
+                cov_zy = float(np.sum(rb_w * (z_x - mzx) * (z_y - mzy)))
                 corr_hat = cov_zy / (np.sqrt(vzx) * np.sqrt(vzy))
                 p.rho_n = float(np.clip(p.alpha * corr_hat + (1 - p.alpha) * p.rho_n, -0.95, 0.95))
+
                 updated = 1
 
-            # 5) rebuild q_base for next iteration
+            # 6) rebuild q_base (and q_n/q_w caches) for next iteration
             self._rebuild_q_base()
 
-            # 6) log a full snapshot with diagnostics
-            _push(iter_idx=t, ess=ess, hit_raw=hit_rate_raw, hit_w=p_hit_w, updated=updated, n=samples_per_iter)
+            # 7) log
+            _push(iter_idx=t, ess=ess, perp=perplexity,
+                hit_raw=hit_rate_raw, hit_w=p_hit_w,
+                updated=updated, n=samples_per_iter)
 
         return pd.DataFrame(self.history)
 

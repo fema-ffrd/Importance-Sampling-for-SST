@@ -9,11 +9,20 @@ def summarize_depths_by_return_period(
     k: float = 10.0,
     rp_min: int = 2,
     rp_max_cap: int = 2000,
+    use_common_min: bool = True,  # NEW: True -> min of maxima (common support), False -> max of maxima
 ) -> pd.DataFrame:
     """
     Build mean/median/CI bands (inches) of precipitation vs return period (years),
     and include the number of realizations and number of samples per realization
     (computed as total rows / n_realizations).
+
+    Parameters
+    ----------
+    use_common_min : bool, default True
+        If True, cap the RP grid at the *minimum* of the per-realization max RP
+        (only the range that *all* realizations can cover).
+        If False, cap at the *maximum* of the per-realization max RP
+        (allow some realizations to be NaN beyond their max; aggregation uses nan-*).
     """
     need = {precip_col, exc_col, realization_col}
     missing = need - set(df.columns)
@@ -22,7 +31,7 @@ def summarize_depths_by_return_period(
 
     work = df[[precip_col, exc_col, realization_col]].dropna(subset=[precip_col, exc_col]).copy()
 
-    # RP per row
+    # RP per row via inverse of 1 - exp(-k * exc)
     work["RP"] = 1.0 / (1.0 - np.exp(-k * work[exc_col].astype(float)))
 
     # detect n_realizations and n_samples_per_realization directly
@@ -30,7 +39,7 @@ def summarize_depths_by_return_period(
     n_samples_per_realization = int(len(df) / n_realizations) if n_realizations > 0 else 0
 
     rp_max_each = []
-    curves = {}
+    curves: dict = {}
     for r, g in work.groupby(realization_col, sort=False):
         g = g.copy()
         g = g[np.isfinite(g["RP"].values) & np.isfinite(g[precip_col].values)]
@@ -38,6 +47,7 @@ def summarize_depths_by_return_period(
             continue
 
         g["precip_in"] = g[precip_col].astype(float) / 25.4
+        # strictly increasing RP curve
         g = g.sort_values("RP", ascending=True).drop_duplicates(subset="RP", keep="first")
 
         rp_vals = np.maximum.accumulate(g["RP"].to_numpy())
@@ -57,7 +67,13 @@ def summarize_depths_by_return_period(
             "n_realizations","n_samples_per_realization"
         ])
 
-    global_max = float(np.nanmin(rp_max_each))
+    # Choose grid max: min of maxima (common support) or max of maxima (broader grid)
+    per_realization_max = np.array(rp_max_each, dtype=float)
+    if use_common_min:
+        global_max = float(np.nanmin(per_realization_max))
+    else:
+        global_max = float(np.nanmax(per_realization_max))
+
     Rmax = int(min(rp_max_cap, np.floor(global_max)))
     if Rmax < rp_min:
         return pd.DataFrame(columns=[
@@ -67,6 +83,7 @@ def summarize_depths_by_return_period(
 
     rp_grid = np.arange(rp_min, Rmax + 1, dtype=int)
 
+    # Interpolate each realization onto the common grid; allow NaNs outside its range
     interp_stack = [np.interp(rp_grid, rp, pin, left=np.nan, right=np.nan)
                     for rp, pin in curves.values()]
     interp_arr = np.vstack(interp_stack)
@@ -90,3 +107,4 @@ def summarize_depths_by_return_period(
 
     stats_cols = ["mean_in","median_in","ci90_low_in","ci90_high_in","ci95_low_in","ci95_high_in"]
     return out.loc[~out[stats_cols].isna().all(axis=1)].reset_index(drop=True)
+
