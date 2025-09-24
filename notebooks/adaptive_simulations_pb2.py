@@ -54,7 +54,7 @@ for w in watershed_names:
 #region Variables
 
 # %%
-watershed_name = "Duwamish"
+watershed_name = "Denton"
 watershed = watersheds[watershed_name]
 
 # %%
@@ -160,6 +160,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='power', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_gamma=2.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -237,7 +238,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='power', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_gamma=4.0
+    reward_gamma=4.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -315,7 +316,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='power', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_gamma=6.0
+    reward_gamma=6.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -393,6 +394,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='exponential', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_temp=50.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -470,7 +472,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='exponential', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_temp=25.0
+    reward_temp=25.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -548,7 +550,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='exponential', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_temp=15.0
+    reward_temp=15.0,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -626,6 +628,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='rank', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_elite_fraction=0.10,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -703,7 +706,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='rank', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_elite_fraction=0.05
+    reward_elite_fraction=0.05,
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -757,7 +760,7 @@ plot_two_return_period_summaries(
     summary2=adaptive_summary,              # your second summary DataFrame
     label1="Uniform Sampling",
     label2="Adaptive Sampling",
-    save=True,
+    # save=True,
     title=f"{watershed_name}_N={N}x{NUM_REALIZATIONS} (rank2)"
 )
 
@@ -781,7 +784,7 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='rank', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
-    reward_elite_fraction=0.01
+    reward_elite_fraction=0.01,
 )
 
 sampler = AdaptiveMixtureSampler2(
