@@ -36,7 +36,7 @@ class AdaptParams:
 
     alpha: float = 0.75
     eps_var: float = 1e-6
-    K_temper: float = 1.0
+    K_temper: float = 1
 
     # Numeric stability
     eps_floor: float = 1e-300
