@@ -57,7 +57,7 @@ watershed = watersheds["Trinity"]
 #region Variables
 
 #%%
-N = 14000
+N = 7000
 NUM_REALIZATIONS = 50
 RP_MAX_CAP = 5000
 
@@ -212,6 +212,83 @@ plot_two_return_period_summaries(
 )
 
 #endregion -----------------------------------------------------------------------------------------
+#region Adaptive Sampling PB (power 2)
+
+# %%
+params = AdaptParams2(
+    mu_x_n=watershed.watershed_stats["x"],
+    mu_y_n=watershed.watershed_stats["y"],
+    sd_x_n=watershed.watershed_stats["range_x"] * 0.5,
+    sd_y_n=watershed.watershed_stats["range_y"] * 0.5,
+
+    mu_x_w=watershed.watershed_stats["x"],
+    mu_y_w=watershed.watershed_stats["y"],
+    sd_x_w=watershed.domain_stats["range_x"],
+    sd_y_w=watershed.domain_stats["range_y"],
+
+    rho_n=-0.7,      # correlation narrow
+    rho_w=0.5,       # correlation wide
+    mix=0.5,         # initial mixture weight for narrow
+
+    reward_method='power', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_gamma=4.0
+)
+
+sampler = AdaptiveMixtureSampler2(
+    data=watershed,                   
+    params=params,
+    precip_cube=watershed.cumulative_precip,
+    seed=42
+)
+
+# Adapt does NOT take data or seed
+history = sampler.adapt(num_iterations=10, samples_per_iter=5000, depth_threshold=0.0)
+
+# %%
+history
+
+# %%
+plot_adaptive_evolution(history, watershed.watershed_gdf, watershed.domain_gdf, save=False, prefix="trinity_ais")
+
+# %%
+final_df = sampler.sample_final(n=N, num_realizations=NUM_REALIZATIONS, with_depths=True)
+
+# %%
+ax = watershed.domain_gdf.boundary.plot(linewidth=0.6, figsize=(9,9))
+plt.scatter(final_df.newx, final_df.newy, s=0.2, alpha=0.3, rasterized=True)
+plt.gca().set_aspect("equal")
+plt.xlabel("x"); plt.ylabel("y"); plt.tight_layout()
+plt.show()
+
+# %%
+adaptive_summary = summarize_depths_by_return_period(
+    df=final_df,       
+    precip_col="precip_avg_mm",
+    exc_col="exc_prb",
+    realization_col="realization",
+    k=10.0,                            
+    rp_min=2,
+    rp_max_cap=RP_MAX_CAP,
+    use_common_min=True
+)
+
+# %%
+m = metrics(summaries["Trinity"],adaptive_summary)
+m
+
+# %%
+adaptive_summary
+
+# %%
+plot_two_return_period_summaries(
+    summary1=summaries["Trinity"],          # your first summary DataFrame
+    summary2=adaptive_summary,              # your second summary DataFrame
+    label1="Uniform Sampling",
+    label2="Adaptive Sampling",
+    title=""
+)
+
+#endregion -----------------------------------------------------------------------------------------
 #region Adaptive Sampling PB (exponential)
 
 # %%
@@ -231,6 +308,83 @@ params = AdaptParams2(
     mix=0.5,         # initial mixture weight for narrow
 
     reward_method='exponential', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+)
+
+sampler = AdaptiveMixtureSampler2(
+    data=watershed,                   
+    params=params,
+    precip_cube=watershed.cumulative_precip,
+    seed=42
+)
+
+# Adapt does NOT take data or seed
+history = sampler.adapt(num_iterations=10, samples_per_iter=5000, depth_threshold=0.0)
+
+# %%
+history
+
+# %%
+plot_adaptive_evolution(history, watershed.watershed_gdf, watershed.domain_gdf, save=False, prefix="trinity_ais")
+
+# %%
+final_df = sampler.sample_final(n=N, num_realizations=NUM_REALIZATIONS, with_depths=True)
+
+# %%
+ax = watershed.domain_gdf.boundary.plot(linewidth=0.6, figsize=(9,9))
+plt.scatter(final_df.newx, final_df.newy, s=0.2, alpha=0.3, rasterized=True)
+plt.gca().set_aspect("equal")
+plt.xlabel("x"); plt.ylabel("y"); plt.tight_layout()
+plt.show()
+
+# %%
+adaptive_summary = summarize_depths_by_return_period(
+    df=final_df,       
+    precip_col="precip_avg_mm",
+    exc_col="exc_prb",
+    realization_col="realization",
+    k=10.0,                            
+    rp_min=2,
+    rp_max_cap=RP_MAX_CAP,
+    use_common_min=True
+)
+
+# %%
+m = metrics(summaries["Trinity"],adaptive_summary)
+m
+
+# %%
+adaptive_summary
+
+# %%
+plot_two_return_period_summaries(
+    summary1=summaries["Trinity"],          # your first summary DataFrame
+    summary2=adaptive_summary,              # your second summary DataFrame
+    label1="Uniform Sampling",
+    label2="Adaptive Sampling",
+    title=""
+)
+
+#endregion -----------------------------------------------------------------------------------------
+#region Adaptive Sampling PB (exponential 2)
+
+# %%
+params = AdaptParams2(
+    mu_x_n=watershed.watershed_stats["x"],
+    mu_y_n=watershed.watershed_stats["y"],
+    sd_x_n=watershed.watershed_stats["range_x"] * 0.5,
+    sd_y_n=watershed.watershed_stats["range_y"] * 0.5,
+
+    mu_x_w=watershed.watershed_stats["x"],
+    mu_y_w=watershed.watershed_stats["y"],
+    sd_x_w=watershed.domain_stats["range_x"],
+    sd_y_w=watershed.domain_stats["range_y"],
+
+    rho_n=-0.7,      # correlation narrow
+    rho_w=0.5,       # correlation wide
+    mix=0.5,         # initial mixture weight for narrow
+
+    reward_method='exponential', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_temp=25.0
 )
 
 sampler = AdaptiveMixtureSampler2(
@@ -364,6 +518,83 @@ plot_two_return_period_summaries(
 )
 
 #endregion -----------------------------------------------------------------------------------------
+#region Adaptive Sampling PB (rank 2)
+
+# %%
+params = AdaptParams2(
+    mu_x_n=watershed.watershed_stats["x"],
+    mu_y_n=watershed.watershed_stats["y"],
+    sd_x_n=watershed.watershed_stats["range_x"] * 0.5,
+    sd_y_n=watershed.watershed_stats["range_y"] * 0.5,
+
+    mu_x_w=watershed.watershed_stats["x"],
+    mu_y_w=watershed.watershed_stats["y"],
+    sd_x_w=watershed.domain_stats["range_x"],
+    sd_y_w=watershed.domain_stats["range_y"],
+
+    rho_n=-0.7,      # correlation narrow
+    rho_w=0.5,       # correlation wide
+    mix=0.5,         # initial mixture weight for narrow
+
+    reward_method='rank', # 'threshold', 'power', 'exponential', 'rank', 'hybrid'
+    reward_elite_fraction=0.05
+)
+
+sampler = AdaptiveMixtureSampler2(
+    data=watershed,                   
+    params=params,
+    precip_cube=watershed.cumulative_precip,
+    seed=42
+)
+
+# Adapt does NOT take data or seed
+history = sampler.adapt(num_iterations=10, samples_per_iter=5000, depth_threshold=0.0)
+
+# %%
+history
+
+# %%
+plot_adaptive_evolution(history, watershed.watershed_gdf, watershed.domain_gdf, save=False, prefix="trinity_ais")
+
+# %%
+final_df = sampler.sample_final(n=N, num_realizations=NUM_REALIZATIONS, with_depths=True)
+
+# %%
+ax = watershed.domain_gdf.boundary.plot(linewidth=0.6, figsize=(9,9))
+plt.scatter(final_df.newx, final_df.newy, s=0.2, alpha=0.3, rasterized=True)
+plt.gca().set_aspect("equal")
+plt.xlabel("x"); plt.ylabel("y"); plt.tight_layout()
+plt.show()
+
+# %%
+adaptive_summary = summarize_depths_by_return_period(
+    df=final_df,       
+    precip_col="precip_avg_mm",
+    exc_col="exc_prb",
+    realization_col="realization",
+    k=10.0,                            
+    rp_min=2,
+    rp_max_cap=RP_MAX_CAP,
+    use_common_min=True
+)
+
+# %%
+m = metrics(summaries["Trinity"],adaptive_summary)
+m
+
+# %%
+adaptive_summary
+
+# %%
+plot_two_return_period_summaries(
+    summary1=summaries["Trinity"],          # your first summary DataFrame
+    summary2=adaptive_summary,              # your second summary DataFrame
+    label1="Uniform Sampling",
+    label2="Adaptive Sampling",
+    title=""
+)
+
+#endregion -----------------------------------------------------------------------------------------
 #region Adaptive Sampling PB (hybrid)
 
 # %%
@@ -440,4 +671,3 @@ plot_two_return_period_summaries(
 )
 
 #endregion -----------------------------------------------------------------------------------------
-
