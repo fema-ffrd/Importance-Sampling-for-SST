@@ -37,7 +37,9 @@ class AdaptParams:
     alpha: float = 0.75
     eps_var: float = 1e-6
     K_temper: float = 1
-
+    
+    beta_use_depth: bool = True
+    
     # Numeric stability
     eps_floor: float = 1e-300
 
@@ -385,9 +387,11 @@ class AdaptiveMixtureSampler:
         """
         Adaptive loop with responsibilities and EM-style beta update.
 
-        - depth_threshold: a sample is considered a "hit" if depth >= threshold
+        - depth_threshold: a sample is a "hit" if depth >= threshold
+        - If params.beta_use_depth is True, beta update uses depth-weighted responsibilities.
         - history logs: iter, n, ess, perplexity, hit_raw, hit_w, updated,
-                        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n
+                        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n,
+                        beta_em, beta_em_depth
         """
         if self.precip_cube is None:
             raise ValueError("adapt() requires precip_cube to compute depths/hits.")
@@ -395,7 +399,8 @@ class AdaptiveMixtureSampler:
         p = self.params
         self.history = []
 
-        def _push(iter_idx, ess, perp, hit_raw, hit_w, updated, n):
+        def _push(iter_idx, ess, perp, hit_raw, hit_w, updated, n,
+                beta_em, beta_em_depth):
             self.history.append(dict(
                 iter=iter_idx, n=n,
                 ess=None if ess is None else float(ess),
@@ -407,10 +412,13 @@ class AdaptiveMixtureSampler:
                 mu_x_n=float(p.mu_x_n), mu_y_n=float(p.mu_y_n),
                 sd_x_n=float(p.sd_x_n), sd_y_n=float(p.sd_y_n),
                 rho_n=float(p.rho_n),
+                beta_em=None if beta_em is None else float(beta_em),
+                beta_em_depth=None if beta_em_depth is None else float(beta_em_depth),
             ))
 
         # log initial snapshot
-        _push(iter_idx=0, ess=None, perp=None, hit_raw=None, hit_w=None, updated=0, n=None)
+        _push(iter_idx=0, ess=None, perp=None, hit_raw=None, hit_w=None,
+            updated=0, n=None, beta_em=None, beta_em_depth=None)
 
         for t in range(1, num_iterations + 1):
             # 1) sample valid cells and compute self-normalized weights
@@ -420,7 +428,6 @@ class AdaptiveMixtureSampler:
 
             # basic diagnostics
             ess = float(1.0 / np.sum(w_tilde ** 2))
-            # normalized perplexity = exp(H) / N
             with np.errstate(divide='ignore', invalid='ignore'):
                 H = -np.nansum(w_tilde * np.log(np.maximum(w_tilde, 1e-300)))
             perplexity = float(np.exp(H) / len(w_tilde))
@@ -434,25 +441,34 @@ class AdaptiveMixtureSampler:
             p_hit_w = float((np.sum(w_tilde * hits) + gamma) / (1.0 + 2.0 * gamma))
 
             # 3) responsibilities under current mixture (Rao-Blackwellization)
-            qn_at = self.qn_flat[flat_idx]        # q_n at sampled cells
-            qw_at = self.qw_flat[flat_idx]        # q_w at sampled cells
+            qn_at = self.qn_flat[flat_idx]
+            qw_at = self.qw_flat[flat_idx]
             mix = p.mix
             denom = mix * qn_at + (1.0 - mix) * qw_at
-            # ensure strictly positive denom
             denom = np.maximum(denom, p.eps_floor)
-            r_n = (mix * qn_at) / denom           # responsibility for narrow
-            # r_w = 1 - r_n
+            r_n = (mix * qn_at) / denom            # responsibility for narrow
 
-            # 4) EM-style update for beta (mixture weight), then smooth & clamp
-            beta_em = float(np.sum(w_tilde * r_n))
-            beta_new = (1.0 - p.lambda_mix) * mix + p.lambda_mix * beta_em
-            p.mix = float(np.clip(beta_new, p.beta_floor, p.beta_ceil))
-
-            # 5) Moment-match the narrow component using RB weights and reward
-            #    reward: depth-tempered; optionally zero out below threshold (keeps your semantics)
+            # --- Build reward (same as your moment-matching step) ---
             reward = depths + p.K_temper
             reward = np.where(depths >= depth_threshold, reward, 0.0)
 
+            # 4) EM-style updates for beta (unweighted and depth-weighted)
+            beta_em_uncond = float(np.sum(w_tilde * r_n))   # standard M-PMC EM
+            if p.beta_use_depth:
+                # depth-weighted EM: favors the component explaining high-depth samples
+                num = float(np.sum(w_tilde * r_n * reward))
+                den = float(np.sum(w_tilde * reward)) + gamma
+                beta_em_depth = num / den
+                beta_em_used = beta_em_depth if np.isfinite(beta_em_depth) else beta_em_uncond
+            else:
+                beta_em_depth = np.nan
+                beta_em_used = beta_em_uncond
+
+            # smooth & clamp
+            beta_new = (1.0 - p.lambda_mix) * mix + p.lambda_mix * beta_em_used
+            p.mix = float(np.clip(beta_new, p.beta_floor, p.beta_ceil))
+
+            # 5) Moment-match the narrow component using RB weights and reward
             rb_w = w_tilde * r_n * reward
             s_rb = float(np.sum(rb_w))
             updated = 0
@@ -491,12 +507,14 @@ class AdaptiveMixtureSampler:
             # 6) rebuild q_base (and q_n/q_w caches) for next iteration
             self._rebuild_q_base()
 
-            # 7) log
+            # 7) log (include both beta EM versions for visibility)
             _push(iter_idx=t, ess=ess, perp=perplexity,
                 hit_raw=hit_rate_raw, hit_w=p_hit_w,
-                updated=updated, n=samples_per_iter)
+                updated=updated, n=samples_per_iter,
+                beta_em=beta_em_uncond, beta_em_depth=beta_em_depth)
 
         return pd.DataFrame(self.history)
+
 
 
     # ------------------------------ final draw ------------------------------
