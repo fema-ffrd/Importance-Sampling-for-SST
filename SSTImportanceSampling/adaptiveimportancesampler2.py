@@ -388,7 +388,6 @@ class AdaptiveMixtureSampler2:
 
         return depths
 
-
     # -------------------------------- adapt --------------------------------
     def adapt(self,
             num_iterations: int,
@@ -542,7 +541,6 @@ class AdaptiveMixtureSampler2:
                 updated=updated, n=samples_per_iter)
 
         return pd.DataFrame(self.history)
-
 
     # ------------------------------ final draw ------------------------------
     def sample_final(self, n: int, num_realizations: int = 1,
