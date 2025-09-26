@@ -34,12 +34,10 @@ class AdaptParams:
     beta_floor: float = 0.05
     beta_ceil: float = 0.95
 
-    alpha: float = 0.75
+    alpha: float = 0.25
     eps_var: float = 1e-6
     K_temper: float = 1
-    
-    beta_use_depth: bool = True
-    
+        
     # Numeric stability
     eps_floor: float = 1e-300
 
@@ -380,141 +378,130 @@ class AdaptiveMixtureSampler:
 
 
     # -------------------------------- adapt --------------------------------
-    def adapt(self,
-            num_iterations: int,
-            samples_per_iter: int,
-            depth_threshold: float = 0.0) -> pd.DataFrame:
+    def adapt(
+        self,
+        num_iterations: int,
+        samples_per_iter: int,
+    ) -> pd.DataFrame:
         """
-        Adaptive loop with responsibilities and EM-style beta update.
+        Each iteration:
+        1) Draw `samples_per_iter` valid cells across storms.
+        2) Compute self-normalized importance weights w̃ = w / sum(w).
+        3) Compute watershed-average depths at shifted storm centers.
+        4) Compute responsibilities r_n under q = mix*q_n + (1-mix)*q_w.
+        5) Define reward: R_i = depth_i + K_temper  (no thresholding).
+        6) Update mixture weight `mix` via reward-weighted EM:
+                beta_hat = (Σ w̃_i r_n,i R_i) / (Σ w̃_i R_i + γ)
+                mix ← clip( (1-λ)*mix + λ*beta_hat, [beta_floor, beta_ceil] )
+        7) Moment-match narrow (μ_x, μ_y, σ_x, σ_y, ρ) using RB weights ∝ w̃*r_n*R.
+        8) Rebuild proposal for the next iteration.
+        9) Append a minimal history snapshot.
 
-        - depth_threshold: a sample is a "hit" if depth >= threshold
-        - If params.beta_use_depth is True, beta update uses depth-weighted responsibilities.
-        - history logs: iter, n, ess, perplexity, hit_raw, hit_w, updated,
-                        mix, mu_x_n, mu_y_n, sd_x_n, sd_y_n, rho_n,
-                        beta_em, beta_em_depth
+        Returns
+        -------
+        pd.DataFrame
+            Minimal history with columns:
+            ['iter','n','updated','mix','mu_x_n','mu_y_n','sd_x_n','sd_y_n','rho_n','beta_hat_reward']
         """
         if self.precip_cube is None:
-            raise ValueError("adapt() requires precip_cube to compute depths/hits.")
+            raise ValueError("adapt() requires precip_cube to compute depths/reward.")
 
         p = self.params
         self.history = []
 
-        def _push(iter_idx, ess, perp, hit_raw, hit_w, updated, n,
-                beta_em, beta_em_depth):
+        def _push(iter_idx: int, n: int, updated: int, beta_hat_reward: float | None):
+            """Append a minimal history snapshot."""
             self.history.append(dict(
-                iter=iter_idx, n=n,
-                ess=None if ess is None else float(ess),
-                perplexity=None if perp is None else float(perp),
-                hit_raw=None if hit_raw is None else float(hit_raw),
-                hit_w=None if hit_w is None else float(hit_w),
-                updated=int(updated),
+                iter=iter_idx, n=int(n), updated=int(updated),
                 mix=float(p.mix),
                 mu_x_n=float(p.mu_x_n), mu_y_n=float(p.mu_y_n),
                 sd_x_n=float(p.sd_x_n), sd_y_n=float(p.sd_y_n),
                 rho_n=float(p.rho_n),
-                beta_em=None if beta_em is None else float(beta_em),
-                beta_em_depth=None if beta_em_depth is None else float(beta_em_depth),
+                beta_hat_reward=(float(beta_hat_reward) if beta_hat_reward is not None else None),
             ))
 
-        # log initial snapshot
-        _push(iter_idx=0, ess=None, perp=None, hit_raw=None, hit_w=None,
-            updated=0, n=None, beta_em=None, beta_em_depth=None)
+        # Initial snapshot (pre-iteration)
+        _push(iter_idx=0, n=0, updated=0, beta_hat_reward=None)
+
+        gamma = 1e-6  # small denominator smoothing
 
         for t in range(1, num_iterations + 1):
-            # 1) sample valid cells and compute self-normalized weights
+            # 1) Sample valid cells & raw importance weights
             storms, flat_idx, w_raw = self._sample_valid_cells(samples_per_iter, self.rng)
+
+            # 2) Self-normalized weights
             sumW = float(np.sum(w_raw))
-            w_tilde = (w_raw / sumW) if (np.isfinite(sumW) and sumW > 0) else np.full_like(w_raw, 1.0 / len(w_raw))
+            w_tilde = (w_raw / sumW) if (np.isfinite(sumW) and sumW > 0.0) else np.full_like(w_raw, 1.0 / len(w_raw))
 
-            # basic diagnostics
-            ess = float(1.0 / np.sum(w_tilde ** 2))
-            with np.errstate(divide='ignore', invalid='ignore'):
-                H = -np.nansum(w_tilde * np.log(np.maximum(w_tilde, 1e-300)))
-            perplexity = float(np.exp(H) / len(w_tilde))
-
-            # 2) coords, depths, hits
+            # 3) Coordinates & watershed-average depths
             x_new, y_new = self._flat_to_xy(flat_idx)
             depths = self._depths_for(storms, flat_idx)
-            hits = (depths >= depth_threshold).astype(int)
-            hit_rate_raw = float(hits.mean())
-            gamma = 1e-6
-            p_hit_w = float((np.sum(w_tilde * hits) + gamma) / (1.0 + 2.0 * gamma))
 
-            # 3) responsibilities under current mixture (Rao-Blackwellization)
+            # 4) Responsibilities under current mixture
             qn_at = self.qn_flat[flat_idx]
             qw_at = self.qw_flat[flat_idx]
-            mix = p.mix
-            denom = mix * qn_at + (1.0 - mix) * qw_at
-            denom = np.maximum(denom, p.eps_floor)
-            r_n = (mix * qn_at) / denom            # responsibility for narrow
+            denom = np.maximum(p.mix * qn_at + (1.0 - p.mix) * qw_at, p.eps_floor)
+            r_n = (p.mix * qn_at) / denom  # responsibility of narrow
 
-            # --- Build reward (same as your moment-matching step) ---
+            # 5) Reward from depths (no threshold): R = depth + K_temper
             reward = depths + p.K_temper
-            reward = np.where(depths >= depth_threshold, reward, 0.0)
 
-            # 4) EM-style updates for beta (unweighted and depth-weighted)
-            beta_em_uncond = float(np.sum(w_tilde * r_n))   # standard M-PMC EM
-            if p.beta_use_depth:
-                # depth-weighted EM: favors the component explaining high-depth samples
-                num = float(np.sum(w_tilde * r_n * reward))
-                den = float(np.sum(w_tilde * reward)) + gamma
-                beta_em_depth = num / den
-                beta_em_used = beta_em_depth if np.isfinite(beta_em_depth) else beta_em_uncond
-            else:
-                beta_em_depth = np.nan
-                beta_em_used = beta_em_uncond
-
-            # smooth & clamp
-            beta_new = (1.0 - p.lambda_mix) * mix + p.lambda_mix * beta_em_used
+            # 6) Reward-weighted EM update for mix
+            num = float(np.sum(w_tilde * r_n * reward))
+            den = float(np.sum(w_tilde * reward)) + gamma
+            beta_hat = num / den  # fraction of reward mass explained by narrow
+            beta_new = (1.0 - p.lambda_mix) * p.mix + p.lambda_mix * beta_hat
             p.mix = float(np.clip(beta_new, p.beta_floor, p.beta_ceil))
 
-            # 5) Moment-match the narrow component using RB weights and reward
+            # 7) Moment-match narrow parameters using RB, reward-weighted samples
             rb_w = w_tilde * r_n * reward
             s_rb = float(np.sum(rb_w))
             updated = 0
-            if s_rb > 0 and np.count_nonzero(reward) > 10:
-                rb_w /= s_rb
 
-                # means & variances in (x,y)
-                mu_x_new = float(np.sum(rb_w * x_new))
-                mu_y_new = float(np.sum(rb_w * y_new))
-                var_x_new = float(np.sum(rb_w * (x_new - mu_x_new) ** 2) + p.eps_var)
-                var_y_new = float(np.sum(rb_w * (y_new - mu_y_new) ** 2) + p.eps_var)
+            if s_rb > 0.0 and np.count_nonzero(reward) > 10:
+                rb_w /= s_rb  # normalize
 
-                p.mu_x_n = p.alpha * mu_x_new + (1 - p.alpha) * p.mu_x_n
-                p.mu_y_n = p.alpha * mu_y_new + (1 - p.alpha) * p.mu_y_n
-                vx = p.alpha * var_x_new + (1 - p.alpha) * (p.sd_x_n ** 2)
-                vy = p.alpha * var_y_new + (1 - p.alpha) * (p.sd_y_n ** 2)
+                # Means (x, y)
+                mu_x_hat = float(np.sum(rb_w * x_new))
+                mu_y_hat = float(np.sum(rb_w * y_new))
+
+                # Variances (x, y)
+                var_x_hat = float(np.sum(rb_w * (x_new - mu_x_hat) ** 2) + p.eps_var)
+                var_y_hat = float(np.sum(rb_w * (y_new - mu_y_hat) ** 2) + p.eps_var)
+
+                # Smooth means/variances
+                p.mu_x_n = p.alpha * mu_x_hat + (1.0 - p.alpha) * p.mu_x_n
+                p.mu_y_n = p.alpha * mu_y_hat + (1.0 - p.alpha) * p.mu_y_n
+                vx = p.alpha * var_x_hat + (1.0 - p.alpha) * (p.sd_x_n ** 2)
+                vy = p.alpha * var_y_hat + (1.0 - p.alpha) * (p.sd_y_n ** 2)
                 p.sd_x_n = float(np.sqrt(max(vx, p.eps_var)))
                 p.sd_y_n = float(np.sqrt(max(vy, p.eps_var)))
 
-                # correlation via latent normals under current narrow marginals
+                # Correlation via latent normals (copula)
                 eps = 1e-12
                 tx_n, ty_n = _truncnorm_objs(self.bounds, p.mu_x_n, p.mu_y_n, p.sd_x_n, p.sd_y_n)
                 u_x = np.clip(tx_n.cdf(x_new), eps, 1 - eps)
                 u_y = np.clip(ty_n.cdf(y_new), eps, 1 - eps)
-                z_x = norm.ppf(u_x); z_y = norm.ppf(u_y)
+                z_x = norm.ppf(u_x)
+                z_y = norm.ppf(u_y)
 
-                mzx = float(np.sum(rb_w * z_x)); mzy = float(np.sum(rb_w * z_y))
+                mzx = float(np.sum(rb_w * z_x))
+                mzy = float(np.sum(rb_w * z_y))
                 vzx = float(np.sum(rb_w * (z_x - mzx) ** 2) + p.eps_var)
                 vzy = float(np.sum(rb_w * (z_y - mzy) ** 2) + p.eps_var)
                 cov_zy = float(np.sum(rb_w * (z_x - mzx) * (z_y - mzy)))
                 corr_hat = cov_zy / (np.sqrt(vzx) * np.sqrt(vzy))
-                p.rho_n = float(np.clip(p.alpha * corr_hat + (1 - p.alpha) * p.rho_n, -0.95, 0.95))
+                p.rho_n = float(np.clip(p.alpha * corr_hat + (1.0 - p.alpha) * p.rho_n, -0.95, 0.95))
 
                 updated = 1
 
-            # 6) rebuild q_base (and q_n/q_w caches) for next iteration
+            # 8) Rebuild proposal
             self._rebuild_q_base()
 
-            # 7) log (include both beta EM versions for visibility)
-            _push(iter_idx=t, ess=ess, perp=perplexity,
-                hit_raw=hit_rate_raw, hit_w=p_hit_w,
-                updated=updated, n=samples_per_iter,
-                beta_em=beta_em_uncond, beta_em_depth=beta_em_depth)
+            # 9) Log snapshot (store beta_hat we used)
+            _push(iter_idx=t, n=samples_per_iter, updated=updated, beta_hat_reward=beta_hat)
 
         return pd.DataFrame(self.history)
-
 
 
     # ------------------------------ final draw ------------------------------
