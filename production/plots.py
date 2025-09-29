@@ -44,7 +44,8 @@ def plot_two_return_period_summaries(summary1: pd.DataFrame,
                                     summary2: pd.DataFrame,
                                     label1: str = "Uniform",
                                     label2: str = "Truncated Normal",
-                                    title: str = "Depth–Return Period Curve (comparison)"):
+                                    title: str = "Depth–Return Period Curve (comparison)",
+                                    save=False):
     """
     Plot median + 95% CI for two summaries in one plot.
 
@@ -92,6 +93,9 @@ def plot_two_return_period_summaries(summary1: pd.DataFrame,
     ax.set_title(title, pad=12)
     fig.tight_layout()
     plt.show()
+
+    if save:
+        fig.savefig(f"{title}.png", bbox_inches="tight")
 
 # %%
 def plot_adaptive_evolution(history, watershed_gdf, domain_gdf, *, save=False, prefix="ais"):
