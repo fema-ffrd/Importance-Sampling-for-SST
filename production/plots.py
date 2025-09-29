@@ -1,8 +1,10 @@
+# %%
 import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import pandas as pd
 
+# %%
 def plot_return_period_summary(summary: pd.DataFrame, title: str = "Depth–Return Period Curve"):
     """
     Plot median and 95% confidence band of precipitation vs. return period.
@@ -37,12 +39,12 @@ def plot_return_period_summary(summary: pd.DataFrame, title: str = "Depth–Retu
     plt.tight_layout()
     plt.show()
 
+# %%
 def plot_two_return_period_summaries(summary1: pd.DataFrame,
-                                     summary2: pd.DataFrame,
-                                     label1: str = "Uniform",
-                                     label2: str = "Truncated Normal",
-                                     title: str = "Depth–Return Period Curve (comparison)",
-                                     save=False):
+                                    summary2: pd.DataFrame,
+                                    label1: str = "Uniform",
+                                    label2: str = "Truncated Normal",
+                                    title: str = "Depth–Return Period Curve (comparison)"):
     """
     Plot median + 95% CI for two summaries in one plot.
 
@@ -91,9 +93,7 @@ def plot_two_return_period_summaries(summary1: pd.DataFrame,
     fig.tight_layout()
     plt.show()
 
-    if save:
-        fig.savefig(f"{title}.png", bbox_inches="tight")
-
+# %%
 def plot_adaptive_evolution(history, watershed_gdf, domain_gdf, *, save=False, prefix="ais"):
     """
     history: DataFrame from sampler.adapt(...)
@@ -140,8 +140,10 @@ def plot_adaptive_evolution(history, watershed_gdf, domain_gdf, *, save=False, p
     if "hit_rate_weighted" in H:
         axs[3].plot(it, H["hit_rate_weighted"], "-o", ms=3)
         axs[3].set_title("Weighted hit rate"); axs[3].set_xlabel("Iter"); axs[3].set_ylabel("p(hit)")
-    else:
-        axs[3].axis("off")
+    else: #PBUpdate
+        # axs[3].axis("off")
+        axs[3].plot(it, H["rho_n"], "-o", ms=3)
+        axs[3].set_title("Correlation"); axs[3].set_xlabel("Iter"); axs[3].set_ylabel("Cor")
 
     for ax in axs:
         ax.grid(alpha=0.3, linewidth=0.6)
