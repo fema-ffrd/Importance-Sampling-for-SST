@@ -199,6 +199,15 @@ class AdaptiveMixtureSampler2:
         if raw_precip is not None:
             self.precip_cube = self._normalize_and_align_precip(raw_precip, align=align_precip, method=align_method)
 
+        # PBUpdate Get likelihood of each storm
+        df_valid_mask = \
+        (data.valid_mask_nc
+            .to_dataframe()
+            .loc[lambda _: _.valid_mask == 1]
+            .reset_index()
+        )        
+        self.df_storm_weights = df_valid_mask.groupby('storm').agg(occurrences = ('storm', 'size')).assign(occurrence_weight = lambda _: _.occurrences/_.occurrences.sum()).reset_index()
+
         self.history: List[dict] = []
 
     # ---------------------- q_base & Z_J -----------------------
@@ -290,10 +299,15 @@ class AdaptiveMixtureSampler2:
     # ---------------------------- sampling core ----------------------------
     def _sample_valid_cells(self, n: int, rng: np.random.Generator):
         # 1) storms uniformly among those with ≥1 valid cell
-        storms = self.storms
+        #PBUpdate
+        # storms = self.storms
+        storms = self.df_storm_weights.loc[:, 'storm']
         S = storms.size
-        chosen_idx = rng.integers(0, S, size=n)
-        chosen_storms = storms[chosen_idx]
+        storm_weights = self.df_storm_weights.loc[:, 'occurrence_weight']
+        chosen_storms = rng.choice(storms, size=n, replace=True, p=storm_weights)
+        # chosen_idx = rng.integers(0, S, size=n)
+        # chosen_storms = storms[chosen_idx]
+        df_storm_weights = self.df_storm_weights.loc[lambda _: _.storm.isin(chosen_storms)].assign(occurrence_weight = lambda _: _.occurrences/_.occurrences.sum())
 
         # 2) pick a valid cell per storm, ∝ q_base on that storm's V_J
         chosen_flat = np.empty(n, dtype=int)
@@ -305,15 +319,16 @@ class AdaptiveMixtureSampler2:
             ps = self.per_storm[sname]
             flat_idx = ps["flat_idx"]
             qb_vals = ps["qb_vals"]; Zj = ps["Z"]; cnt = ps["count"]
+            storm_weight = df_storm_weights.loc[lambda _: _.storm == sname].occurrence_weight.iloc[0]
 
             p = qb_vals / (Zj if Zj > 0.0 else np.finfo(float).tiny)
             idx_local = rng.choice(qb_vals.size, size=take.size, replace=True, p=p)
             chosen_flat[take] = flat_idx[idx_local]
             q_at_p = qb_vals[idx_local]
-            w_raw[take] = Zj / (float(cnt) * q_at_p)
+            w_raw[take] = Zj / (float(cnt) * q_at_p * storm_weight)
 
         return chosen_storms, chosen_flat, w_raw
-
+    
     def _flat_to_xy(self, flat_idx: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         ii = flat_idx // self.colsN
         jj = flat_idx % self.colsN

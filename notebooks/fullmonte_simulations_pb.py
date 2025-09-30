@@ -206,7 +206,7 @@ print(f"Saved: {out_png}")
 wname = 'Duwamish'
 wname = 'Trinity'
 wname = 'Kanawha'
-# wname = 'Denton'
+wname = 'Denton'
 
 # %%
 ws = watersheds[wname] 
