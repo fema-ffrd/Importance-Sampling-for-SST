@@ -1,0 +1,698 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSTImportanceSampling.preprocessor &mdash; SSTImportanceSampling 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            SSTImportanceSampling
+              <img src="../../_static/sst_importance_sampling_logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../quick_start.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../preprocessing.html">Preprocessing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../importancesampling.html">Importance Sampling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../adaptivesampling.html">Adaptive Importance Sampling</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_preprocessor.html">Preprocessor Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_importancesampler.html">Importance Sampler Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_adaptiveimportancesampler.html">Adaptive Sampler Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_stormdepthprocessor.html">StormDepthProcessor Module</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">SSTImportanceSampling</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">SSTImportanceSampling.preprocessor</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for SSTImportanceSampling.preprocessor</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module to preprocess watershed and storm catalog data for use in SST Importance Sampling.</span>
+
+<span class="sd">Use :class:`Preprocessor` to preprocess your data.</span>
+<span class="sd">Call :meth:`Preprocessor.run` after initialization.</span>
+<span class="sd">You can reuse a processed dataset using :meth:`Preprocessor.load`.</span>
+
+<span class="sd">This module handles:</span>
+<span class="sd">    - Reading and projecting watershed/domain geometries</span>
+<span class="sd">    - Computing basic spatial stats (bounds, centroid, ranges) for watershed &amp; domain</span>
+<span class="sd">    - Reading DSS storm files and computing cumulative precipitation</span>
+<span class="sd">    - Computing storm centers (max cumulative precip cell)</span>
+<span class="sd">    - Building a single master grid definition (meta)</span>
+<span class="sd">    - Computing per-storm VALID storm-center masks</span>
+<span class="sd">    - Saving preprocessed outputs (NetCDF + Parquet + JSON meta)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">glob</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">affine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Affine</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyproj</span><span class="w"> </span><span class="kn">import</span> <span class="n">CRS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Point</span><span class="p">,</span> <span class="n">LineString</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">shapely.ops</span><span class="w"> </span><span class="kn">import</span> <span class="n">unary_union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">shapely.affinity</span><span class="w"> </span><span class="kn">import</span> <span class="n">translate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rasterio.features</span><span class="w"> </span><span class="kn">import</span> <span class="n">rasterize</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">hecdss</span><span class="w"> </span><span class="kn">import</span> <span class="n">HecDss</span>
+
+
+<span class="c1"># --------------------- CRS (SHG) ---------------------</span>
+<span class="n">SHG_WKT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s1">&#39;PROJCS[&quot;USA_Contiguous_Albers_Equal_Area_Conic_USGS_version&quot;,&#39;</span>
+    <span class="s1">&#39;GEOGCS[&quot;GCS_North_American_1983&quot;,&#39;</span>
+    <span class="s1">&#39;DATUM[&quot;D_North_American_1983&quot;,&#39;</span>
+    <span class="s1">&#39;SPHEROID[&quot;GRS_1980&quot;,6378137.0,298.257222101]],&#39;</span>
+    <span class="s1">&#39;PRIMEM[&quot;Greenwich&quot;,0.0],&#39;</span>
+    <span class="s1">&#39;UNIT[&quot;Degree&quot;,0.0174532925199433]],&#39;</span>
+    <span class="s1">&#39;PROJECTION[&quot;Albers&quot;],&#39;</span>
+    <span class="s1">&#39;PARAMETER[&quot;False_Easting&quot;,0.0],&#39;</span>
+    <span class="s1">&#39;PARAMETER[&quot;Central_Meridian&quot;,-96.0],&#39;</span>
+    <span class="s1">&#39;PARAMETER[&quot;Standard_Parallel_1&quot;,29.5],&#39;</span>
+    <span class="s1">&#39;PARAMETER[&quot;Standard_Parallel_2&quot;,45.5],&#39;</span>
+    <span class="s1">&#39;PARAMETER[&quot;Latitude_Of_Origin&quot;,23.0],&#39;</span>
+    <span class="s1">&#39;UNIT[&quot;Meter&quot;,1.0]]&#39;</span>
+<span class="p">)</span>
+
+
+<span class="nd">@contextlib</span><span class="o">.</span><span class="n">contextmanager</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_suppress_stdout_stderr</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Silence stdout/stderr (used when calling HEC-DSS).&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">devnull</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">devnull</span><span class="p">:</span>
+        <span class="n">old_stdout</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">dup</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">old_stderr</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">dup</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">dup2</span><span class="p">(</span><span class="n">devnull</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">dup2</span><span class="p">(</span><span class="n">devnull</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">dup2</span><span class="p">(</span><span class="n">old_stdout</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">dup2</span><span class="p">(</span><span class="n">old_stderr</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+
+<span class="c1"># --------------------- helpers ---------------------</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_grid_transform_from_coords</span><span class="p">(</span><span class="n">x_coords</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">y_coords</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Affine</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Affine for a regular grid when x,y are cell CENTERS.&quot;&quot;&quot;</span>
+    <span class="n">dx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">x_coords</span><span class="p">)))</span>
+    <span class="n">dy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">y_coords</span><span class="p">)))</span>
+    <span class="k">return</span> <span class="n">Affine</span><span class="o">.</span><span class="n">translation</span><span class="p">(</span><span class="n">x_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">dx</span><span class="o">/</span><span class="mf">2.0</span><span class="p">,</span> <span class="n">y_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">dy</span><span class="o">/</span><span class="mf">2.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">Affine</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="n">dx</span><span class="p">,</span> <span class="n">dy</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_sp_stats</span><span class="p">(</span><span class="n">gdf</span><span class="p">:</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bounds, centroid, ranges for polygons.&quot;&quot;&quot;</span>
+    <span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="n">gdf</span><span class="o">.</span><span class="n">total_bounds</span>
+    <span class="n">cen</span> <span class="o">=</span> <span class="n">gdf</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">unary_union</span><span class="o">.</span><span class="n">centroid</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">({</span>
+        <span class="s2">&quot;minx&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">minx</span><span class="p">),</span> <span class="s2">&quot;miny&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">miny</span><span class="p">),</span>
+        <span class="s2">&quot;maxx&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">maxx</span><span class="p">),</span> <span class="s2">&quot;maxy&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">maxy</span><span class="p">),</span>
+        <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">cen</span><span class="o">.</span><span class="n">x</span><span class="p">),</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">cen</span><span class="o">.</span><span class="n">y</span><span class="p">),</span>
+        <span class="s2">&quot;range_x&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">maxx</span> <span class="o">-</span> <span class="n">minx</span><span class="p">),</span> <span class="s2">&quot;range_y&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">maxy</span> <span class="o">-</span> <span class="n">miny</span><span class="p">),</span>
+    <span class="p">})</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_rasterize_bool</span><span class="p">(</span><span class="n">geom</span><span class="p">,</span> <span class="n">shape</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span><span class="nb">int</span><span class="p">],</span> <span class="n">transform</span><span class="p">:</span> <span class="n">Affine</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Rasterize geometry to a boolean mask (True inside).&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">rasterize</span><span class="p">([(</span><span class="n">geom</span><span class="p">,</span> <span class="mi">1</span><span class="p">)],</span> <span class="n">out_shape</span><span class="o">=</span><span class="n">shape</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="n">transform</span><span class="p">,</span> <span class="n">fill</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span>
+
+
+<span class="c1"># --------------------- main class ---------------------</span>
+<div class="viewcode-block" id="Preprocessor">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.preprocessor.Preprocessor.html#SSTImportanceSampling.preprocessor.Preprocessor">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Preprocessor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Preprocess storm catalogs and watershed/domain for SST-IS.</span>
+
+<span class="sd">    Outputs (persisted):</span>
+<span class="sd">        - watershed_projected.gpkg      (GeoPackage)</span>
+<span class="sd">        - domain_projected.gpkg         (GeoPackage)</span>
+<span class="sd">        - spatial_stats.json            (JSON)</span>
+<span class="sd">        - cumulative_precip.nc          (NetCDF DataArray: cumulative_precip[storm_path,y,x])</span>
+<span class="sd">        - storm_centers.pq              (Parquet: storm_path, x, y, pmax_mm)</span>
+<span class="sd">        - grid_meta.json                (JSON: CRS/shape/affine/cell_size/x0/y0)</span>
+<span class="sd">        - valid_mask.nc                 (NetCDF DataArray: valid_mask[storm,y,x] as uint8)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># --------------- init ---------------</span>
+<div class="viewcode-block" id="Preprocessor.__init__">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.preprocessor.Preprocessor.html#SSTImportanceSampling.preprocessor.Preprocessor.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">output_folder</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">output_folder</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_path</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span> <span class="o">=</span> <span class="n">CRS</span><span class="o">.</span><span class="n">from_wkt</span><span class="p">(</span><span class="n">SHG_WKT</span><span class="p">)</span>
+
+        <span class="c1"># geoms</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># data products (in-memory)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;pmax_mm&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># stats</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_stats</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># internal valid centroid region (not persisted in config)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">valid_centroid_region_gdf</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># paths</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_path_out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;watershed_projected.gpkg&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_path_out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;domain_projected.gpkg&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">spatial_stats_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;spatial_stats.json&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nc_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;cumulative_precip.nc&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">storm_center_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;storm_centers.pq&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">grid_meta_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;grid_meta.json&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">valid_mask_nc_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;valid_mask.nc&quot;</span><span class="p">)</span>
+
+        <span class="c1"># options</span>
+        <span class="n">opts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;preprocess_opts&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">vcr_max_seg_len</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">opts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid_region_max_seg_len&quot;</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">vcr_simplify_tol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">opts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid_region_simplify_tol&quot;</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span></div>
+
+
+    <span class="c1"># --------------- driver ---------------</span>
+<div class="viewcode-block" id="Preprocessor.run">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.preprocessor.Preprocessor.html#SSTImportanceSampling.preprocessor.Preprocessor.run">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Workflow:</span>
+<span class="sd">          1) Read &amp; project geometries</span>
+<span class="sd">          2) Stats → JSON</span>
+<span class="sd">          3) Read DSS storms → cumulative precip + storm center per storm</span>
+<span class="sd">          4) Build master grid meta from domain bbox aligned to DSS grid</span>
+<span class="sd">          5) Compute the valid centroid region polygon</span>
+<span class="sd">          6) Build per-storm valid masks using the valid centroid region</span>
+<span class="sd">          7) Save outputs &amp; update config</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process_geometries</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compute_and_save_spatial_stats</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process_dss_files</span><span class="p">()</span>
+        <span class="n">grid_meta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_master_grid_meta_from_dss_and_domain</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compute_valid_centroid_region_internal</span><span class="p">()</span>          
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compute_and_save_valid_masks_via_vcr</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">)</span>   <span class="c1"># writes valid_mask.nc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_save_outputs</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_update_config</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">)</span></div>
+
+
+    <span class="c1"># --------------- steps ---------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_process_geometries</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read watershed/domain, project to SHG, save GPKG.&quot;&quot;&quot;</span>
+        <span class="n">watershed_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;watershed&quot;</span><span class="p">][</span><span class="s2">&quot;geometry_file&quot;</span><span class="p">]</span>
+        <span class="n">domain_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;transposition_region&quot;</span><span class="p">][</span><span class="s2">&quot;geometry_file&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">watershed_path</span><span class="p">)</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">domain_path</span><span class="p">)</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">watershed_path_out</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">&quot;GPKG&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">domain_path_out</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="s2">&quot;GPKG&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_and_save_spatial_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Geometries must be processed first.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span> <span class="o">=</span> <span class="n">_sp_stats</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_stats</span> <span class="o">=</span> <span class="n">_sp_stats</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="p">)</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;watershed_stats&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span>
+            <span class="s2">&quot;domain_stats&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_stats</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span>
+        <span class="p">}</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">spatial_stats_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">stats</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># ---- DSS reading ----</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_process_dss_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Read DSS files, compute cumulative precip, pick center (max cell).&quot;&quot;&quot;</span>
+        <span class="n">dss_folder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;catalog&quot;</span><span class="p">][</span><span class="s2">&quot;catalog_folder&quot;</span><span class="p">]</span>
+        <span class="n">dss_files</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">glob</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dss_folder</span><span class="p">,</span> <span class="s2">&quot;*.dss&quot;</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">dss_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No .dss files found under: </span><span class="si">{</span><span class="n">dss_folder</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">dss_file</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">dss_files</span><span class="p">,</span> <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Processing DSS files&quot;</span><span class="p">):</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">dss_file</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">with</span> <span class="n">_suppress_stdout_stderr</span><span class="p">():</span>
+                <span class="n">da</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_dss_cumulative</span><span class="p">(</span><span class="n">dss_file</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">da</span>
+
+            <span class="n">center</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_cell_center</span><span class="p">(</span><span class="n">da</span><span class="p">)</span>
+            <span class="n">pmax</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">da</span><span class="o">.</span><span class="n">values</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="p">)]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">&quot;storm_path&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">center</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="n">center</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="s2">&quot;pmax_mm&quot;</span><span class="p">:</span> <span class="n">pmax</span>
+            <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_read_dss_cumulative</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dss_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return cumulative precipitation for a DSS file as 2D DataArray (y,x).&quot;&quot;&quot;</span>
+        <span class="n">dss</span> <span class="o">=</span> <span class="n">HecDss</span><span class="p">(</span><span class="n">dss_path</span><span class="p">)</span>
+        <span class="n">catalog</span> <span class="o">=</span> <span class="n">dss</span><span class="o">.</span><span class="n">get_catalog</span><span class="p">()</span>
+        <span class="n">paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">catalog</span><span class="o">.</span><span class="n">uncondensed_paths</span> <span class="k">if</span> <span class="s2">&quot;PRECIPITATION&quot;</span> <span class="ow">in</span> <span class="n">p</span> <span class="ow">and</span> <span class="s2">&quot;SHG&quot;</span> <span class="ow">in</span> <span class="n">p</span><span class="p">]</span>
+        <span class="n">data_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">cell_size</span> <span class="o">=</span> <span class="n">ll_x</span> <span class="o">=</span> <span class="n">ll_y</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">paths</span><span class="p">:</span>
+            <span class="n">record</span> <span class="o">=</span> <span class="n">dss</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">grid</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+            <span class="n">grid</span><span class="p">[</span><span class="n">grid</span> <span class="o">==</span> <span class="o">-</span><span class="mf">3.4028235e38</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+            <span class="n">data_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">cell_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">cell_size</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">cellSize</span>
+                <span class="n">ll_x</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">lowerLeftCellX</span> <span class="o">*</span> <span class="n">cell_size</span>
+                <span class="n">ll_y</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">lowerLeftCellY</span> <span class="o">*</span> <span class="n">cell_size</span>
+        <span class="n">dss</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">data_list</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No PRECIPITATION/SHG grids found in </span><span class="si">{</span><span class="n">dss_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">data_stack</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">data_list</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">cumulative</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nansum</span><span class="p">(</span><span class="n">data_stack</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="n">cumulative</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">x_coords</span> <span class="o">=</span> <span class="n">ll_x</span> <span class="o">+</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cols</span><span class="p">))</span> <span class="o">*</span> <span class="n">cell_size</span>
+        <span class="n">y_coords</span> <span class="o">=</span> <span class="n">ll_y</span> <span class="o">+</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span> <span class="o">*</span> <span class="n">cell_size</span>
+
+        <span class="k">return</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+            <span class="n">cumulative</span><span class="p">,</span>
+            <span class="n">dims</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">),</span>
+            <span class="n">coords</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">x_coords</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="n">y_coords</span><span class="p">},</span>
+            <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;units&quot;</span><span class="p">:</span> <span class="s2">&quot;mm&quot;</span><span class="p">,</span> <span class="s2">&quot;cell_size&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">cell_size</span><span class="p">),</span> <span class="s2">&quot;crs&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span><span class="p">)},</span>
+        <span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_max_cell_center</span><span class="p">(</span><span class="n">da</span><span class="p">:</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Point</span><span class="p">:</span>
+        <span class="n">arr</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">values</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">Point</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="n">flat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanargmax</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+        <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unravel_index</span><span class="p">(</span><span class="n">flat</span><span class="p">,</span> <span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Point</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">j</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">]))</span>
+
+    <span class="c1"># ---- master grid meta ----</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_master_grid_meta_from_dss_and_domain</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build a master grid aligned to DSS grids covering the domain bbox.</span>
+<span class="sd">        Returns dict with rows, cols, cell_size, transform (a,b,c,d,e,f), x0,y0, crs_wkt.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;DSS cumulative precip not available.&quot;</span><span class="p">)</span>
+
+        <span class="n">any_da</span><span class="p">:</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span>
+        <span class="n">cell_size</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">any_da</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;cell_size&quot;</span><span class="p">])</span>
+
+        <span class="n">D</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">unary_union</span>
+        <span class="n">minx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">maxy</span> <span class="o">=</span> <span class="n">D</span><span class="o">.</span><span class="n">bounds</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_aligned</span><span class="p">(</span><span class="n">min_c</span><span class="p">,</span> <span class="n">max_c</span><span class="p">,</span> <span class="n">cell</span><span class="p">):</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">((</span><span class="n">max_c</span> <span class="o">-</span> <span class="n">min_c</span><span class="p">)</span> <span class="o">/</span> <span class="n">cell</span><span class="p">))</span>
+            <span class="n">centers</span> <span class="o">=</span> <span class="n">min_c</span> <span class="o">+</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="o">*</span> <span class="n">cell</span>
+            <span class="k">if</span> <span class="n">centers</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">centers</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">max_c</span> <span class="o">-</span> <span class="mf">0.5</span><span class="o">*</span><span class="n">cell</span><span class="p">):</span>
+                <span class="n">centers</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">centers</span><span class="p">,</span> <span class="p">(</span><span class="n">centers</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">cell</span><span class="p">)</span> <span class="k">if</span> <span class="n">centers</span><span class="o">.</span><span class="n">size</span> <span class="k">else</span> <span class="p">(</span><span class="n">min_c</span> <span class="o">+</span> <span class="mf">0.5</span><span class="o">*</span><span class="n">cell</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">centers</span>
+
+        <span class="n">xs</span> <span class="o">=</span> <span class="n">_aligned</span><span class="p">(</span><span class="n">minx</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">cell_size</span><span class="p">)</span>
+        <span class="n">ys</span> <span class="o">=</span> <span class="n">_aligned</span><span class="p">(</span><span class="n">miny</span><span class="p">,</span> <span class="n">maxy</span><span class="p">,</span> <span class="n">cell_size</span><span class="p">)</span>
+        <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ys</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">xs</span><span class="p">)</span>
+        <span class="n">transform</span> <span class="o">=</span> <span class="n">_grid_transform_from_coords</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">)</span>
+
+        <span class="n">meta</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;crs_wkt&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span><span class="o">.</span><span class="n">to_wkt</span><span class="p">(),</span>
+            <span class="s2">&quot;rows&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">rows</span><span class="p">),</span>
+            <span class="s2">&quot;cols&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">cols</span><span class="p">),</span>
+            <span class="s2">&quot;cell_size&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">cell_size</span><span class="p">),</span>
+            <span class="s2">&quot;transform&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">transform</span><span class="o">.</span><span class="n">a</span><span class="p">,</span> <span class="n">transform</span><span class="o">.</span><span class="n">b</span><span class="p">,</span> <span class="n">transform</span><span class="o">.</span><span class="n">c</span><span class="p">,</span> <span class="n">transform</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="n">transform</span><span class="o">.</span><span class="n">e</span><span class="p">,</span> <span class="n">transform</span><span class="o">.</span><span class="n">f</span><span class="p">],</span>
+            <span class="s2">&quot;x0&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">xs</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+            <span class="s2">&quot;y0&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">ys</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+        <span class="p">}</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">grid_meta_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">meta</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">meta</span>
+
+    <span class="c1"># ---- internal: valid centroid region ----</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_valid_centroid_region</span><span class="p">(</span><span class="n">domain_gdf</span><span class="p">:</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">,</span>
+                               <span class="n">watershed_gdf</span><span class="p">:</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">,</span>
+                               <span class="n">max_seg_len</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">100.0</span><span class="p">,</span>
+                               <span class="n">simplify_tol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Polygon of all centroid positions s such that translating watershed by (s - c)</span>
+<span class="sd">        keeps it entirely inside the domain. (c = watershed centroid)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">D</span> <span class="o">=</span> <span class="n">unary_union</span><span class="p">(</span><span class="n">domain_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="p">)</span><span class="o">.</span><span class="n">buffer</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">B</span> <span class="o">=</span> <span class="n">unary_union</span><span class="p">(</span><span class="n">watershed_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="p">)</span><span class="o">.</span><span class="n">buffer</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">simplify_tol</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">D</span> <span class="o">=</span> <span class="n">D</span><span class="o">.</span><span class="n">simplify</span><span class="p">(</span><span class="n">simplify_tol</span><span class="p">,</span> <span class="n">preserve_topology</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">B</span><span class="o">.</span><span class="n">centroid</span>
+        <span class="n">cx</span><span class="p">,</span> <span class="n">cy</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">y</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_densify_ring</span><span class="p">(</span><span class="n">coords</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">max_seg_len</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">yield from</span> <span class="n">coords</span><span class="p">;</span> <span class="k">return</span>
+            <span class="n">coords</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">coords</span><span class="p">)</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">),</span> <span class="p">(</span><span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">coords</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">coords</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
+                <span class="n">seg_len</span> <span class="o">=</span> <span class="n">LineString</span><span class="p">([(</span><span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">),</span> <span class="p">(</span><span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">)])</span><span class="o">.</span><span class="n">length</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">seg_len</span> <span class="o">/</span> <span class="n">max_seg_len</span><span class="p">)))</span>
+                <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+                    <span class="k">yield</span> <span class="p">(</span><span class="n">x1</span> <span class="o">+</span> <span class="n">t</span><span class="o">*</span><span class="p">(</span><span class="n">x2</span> <span class="o">-</span> <span class="n">x1</span><span class="p">),</span> <span class="n">y1</span> <span class="o">+</span> <span class="n">t</span><span class="o">*</span><span class="p">(</span><span class="n">y2</span> <span class="o">-</span> <span class="n">y1</span><span class="p">))</span>
+            <span class="k">yield</span> <span class="n">coords</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_boundary_points</span><span class="p">(</span><span class="n">geom</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">geom</span><span class="o">.</span><span class="n">geom_type</span> <span class="o">==</span> <span class="s2">&quot;Polygon&quot;</span><span class="p">:</span>
+                <span class="k">yield from</span> <span class="n">_densify_ring</span><span class="p">(</span><span class="n">geom</span><span class="o">.</span><span class="n">exterior</span><span class="o">.</span><span class="n">coords</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">ring</span> <span class="ow">in</span> <span class="n">geom</span><span class="o">.</span><span class="n">interiors</span><span class="p">:</span> <span class="k">yield from</span> <span class="n">_densify_ring</span><span class="p">(</span><span class="n">ring</span><span class="o">.</span><span class="n">coords</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">geom</span><span class="o">.</span><span class="n">geom_type</span> <span class="o">==</span> <span class="s2">&quot;MultiPolygon&quot;</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">geom</span><span class="o">.</span><span class="n">geoms</span><span class="p">:</span> <span class="k">yield from</span> <span class="n">_boundary_points</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unexpected geometry type: </span><span class="si">{</span><span class="n">geom</span><span class="o">.</span><span class="n">geom_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">feasible</span> <span class="o">=</span> <span class="n">D</span>
+        <span class="n">seen</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">px</span><span class="p">,</span> <span class="n">py</span> <span class="ow">in</span> <span class="n">_boundary_points</span><span class="p">(</span><span class="n">B</span><span class="p">):</span>
+            <span class="n">dx</span><span class="p">,</span> <span class="n">dy</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">px</span> <span class="o">-</span> <span class="n">cx</span><span class="p">),</span> <span class="o">-</span><span class="p">(</span><span class="n">py</span> <span class="o">-</span> <span class="n">cy</span><span class="p">)</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">dx</span><span class="p">,</span> <span class="mi">9</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="n">dy</span><span class="p">,</span> <span class="mi">9</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span> <span class="k">continue</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="n">feasible</span> <span class="o">=</span> <span class="n">feasible</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">translate</span><span class="p">(</span><span class="n">D</span><span class="p">,</span> <span class="n">xoff</span><span class="o">=</span><span class="n">dx</span><span class="p">,</span> <span class="n">yoff</span><span class="o">=</span><span class="n">dy</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">feasible</span><span class="o">.</span><span class="n">is_empty</span><span class="p">:</span> <span class="k">break</span>
+
+        <span class="k">return</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span><span class="p">(</span><span class="n">geometry</span><span class="o">=</span><span class="p">[</span><span class="n">feasible</span><span class="p">],</span> <span class="n">crs</span><span class="o">=</span><span class="n">domain_gdf</span><span class="o">.</span><span class="n">crs</span> <span class="ow">or</span> <span class="n">watershed_gdf</span><span class="o">.</span><span class="n">crs</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_valid_centroid_region_internal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute &amp; keep the valid centroid region in-memory only.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Geometries must be processed before VCR.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">valid_centroid_region_gdf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_valid_centroid_region</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_gdf</span><span class="p">,</span>
+            <span class="n">max_seg_len</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">vcr_max_seg_len</span><span class="p">,</span>
+            <span class="n">simplify_tol</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">vcr_simplify_tol</span>
+        <span class="p">)</span>
+
+    <span class="c1"># ---- per-storm valid masks ----</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_and_save_valid_masks_via_vcr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">grid_meta</span><span class="p">:</span> <span class="n">Dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build per-storm VALID masks using the valid-centroid region (VCR).</span>
+
+<span class="sd">        P is valid for storm j  &lt;=&gt;  s := c + (Cj - P) ∈ VCR,</span>
+<span class="sd">        where c is watershed centroid and Cj is the original storm center.</span>
+<span class="sd">        Implemented as a reflect+shift lookup over a rasterized VCR.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">affine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Affine</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">valid_centroid_region_gdf</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;Valid centroid region not computed.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># --- unpack grid ---</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;rows&quot;</span><span class="p">]);</span> <span class="n">cols</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;cols&quot;</span><span class="p">])</span>
+        <span class="n">cell</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;cell_size&quot;</span><span class="p">])</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c_</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span> <span class="o">=</span> <span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;transform&quot;</span><span class="p">]</span>
+        <span class="n">transform</span> <span class="o">=</span> <span class="n">Affine</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c_</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+        <span class="n">x0</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;x0&quot;</span><span class="p">]);</span> <span class="n">y0</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">grid_meta</span><span class="p">[</span><span class="s2">&quot;y0&quot;</span><span class="p">])</span>
+        <span class="n">xs</span> <span class="o">=</span> <span class="n">x0</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cols</span><span class="p">)</span> <span class="o">*</span> <span class="n">cell</span>
+        <span class="n">ys</span> <span class="o">=</span> <span class="n">y0</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span> <span class="o">*</span> <span class="n">cell</span>
+
+        <span class="c1"># Enforce candidate P must lie inside the domain polygon</span>
+        <span class="n">D</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">unary_union</span>
+        <span class="n">in_domain</span> <span class="o">=</span> <span class="n">_rasterize_bool</span><span class="p">(</span><span class="n">D</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">transform</span><span class="p">)</span>  <span class="c1"># (rows, cols) bool</span>
+
+        <span class="c1"># --- rasterize ---</span>
+        <span class="n">VCR_geom</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">valid_centroid_region_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">unary_union</span>
+        <span class="k">if</span> <span class="n">VCR_geom</span><span class="o">.</span><span class="n">is_empty</span><span class="p">:</span>
+            <span class="c1"># nothing is feasible: all-zero masks</span>
+            <span class="n">vcr_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">vcr_mask</span> <span class="o">=</span> <span class="n">_rasterize_bool</span><span class="p">(</span><span class="n">VCR_geom</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">transform</span><span class="p">)</span>  <span class="c1"># (rows, cols) bool</span>
+
+        <span class="c1"># watershed centroid c</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="s2">&quot;x&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span> <span class="ow">or</span> <span class="s2">&quot;y&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="s2">&quot;watershed_stats missing. Ensure _compute_and_save_spatial_stats() ran before building valid masks.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">cx_w</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">cy_w</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">watershed_stats</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="c1"># helper: map 1-D centers to integer indices of s = K - centers</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">idx_map</span><span class="p">(</span><span class="n">centers</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">K</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+            <span class="n">step</span> <span class="o">=</span> <span class="n">centers</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">centers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="c1"># i_s ≈ round((K - centers - centers[0]) / step)</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">rint</span><span class="p">((</span><span class="n">K</span> <span class="o">-</span> <span class="n">centers</span> <span class="o">-</span> <span class="n">centers</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">/</span> <span class="n">step</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+
+        <span class="n">storm_ids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="n">nS</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">storm_ids</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">nS</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Precompute per-axis in-bounds tests (broadcasted)</span>
+        <span class="n">ones_r</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+        <span class="n">ones_c</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">s_idx</span><span class="p">,</span> <span class="n">sid</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">tqdm</span><span class="p">(</span><span class="n">storm_ids</span><span class="p">,</span> <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Valid mask via VCR&quot;</span><span class="p">)):</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">sid</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">row</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">Cx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">Cy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+            <span class="c1"># K = c + Cj</span>
+            <span class="n">Kx</span> <span class="o">=</span> <span class="n">cx_w</span> <span class="o">+</span> <span class="n">Cx</span>
+            <span class="n">Ky</span> <span class="o">=</span> <span class="n">cy_w</span> <span class="o">+</span> <span class="n">Cy</span>
+
+            <span class="c1"># Per-axis target indices for s = (Ky - ys[i], Kx - xs[j])</span>
+            <span class="n">is_</span> <span class="o">=</span> <span class="n">idx_map</span><span class="p">(</span><span class="n">ys</span><span class="p">,</span> <span class="n">Ky</span><span class="p">)</span>   <span class="c1"># shape: (rows,)</span>
+            <span class="n">js</span>  <span class="o">=</span> <span class="n">idx_map</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">Kx</span><span class="p">)</span>   <span class="c1"># shape: (cols,)</span>
+
+            <span class="c1"># Broadcast to 2-D index grids (rows x cols)</span>
+            <span class="n">IS</span> <span class="o">=</span> <span class="n">is_</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">ones_c</span>      <span class="c1"># (rows, cols)</span>
+            <span class="n">JS</span> <span class="o">=</span> <span class="n">ones_r</span> <span class="o">*</span> <span class="n">js</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>       <span class="c1"># (rows, cols)</span>
+
+            <span class="c1"># In-bounds mask</span>
+            <span class="n">in_i</span> <span class="o">=</span> <span class="p">(</span><span class="n">IS</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">IS</span> <span class="o">&lt;</span> <span class="n">rows</span><span class="p">)</span>
+            <span class="n">in_j</span> <span class="o">=</span> <span class="p">(</span><span class="n">JS</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">JS</span> <span class="o">&lt;</span> <span class="n">cols</span><span class="p">)</span>
+            <span class="n">inb</span>  <span class="o">=</span> <span class="n">in_i</span> <span class="o">&amp;</span> <span class="n">in_j</span>
+
+            <span class="c1"># Clip to bounds for safe gather, then gather with advanced indexing</span>
+            <span class="n">ISc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">IS</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">rows</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">JSc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">JS</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">cols</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">vm_full</span> <span class="o">=</span> <span class="n">vcr_mask</span><span class="p">[</span><span class="n">ISc</span><span class="p">,</span> <span class="n">JSc</span><span class="p">]</span>    <span class="c1"># (rows, cols), broadcasted advanced indexing</span>
+
+            <span class="c1"># Zero where out-of-bounds; 1 where in-bounds and VCR true</span>
+            <span class="n">vm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span>
+            <span class="n">vm</span><span class="p">[</span><span class="n">inb</span><span class="p">]</span> <span class="o">=</span> <span class="n">vm_full</span><span class="p">[</span><span class="n">inb</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span>
+            <span class="n">vm</span> <span class="o">&amp;=</span> <span class="n">in_domain</span>  <span class="c1"># disallow centers outside irregular domain boundary</span>
+
+            <span class="n">out</span><span class="p">[</span><span class="n">s_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">vm</span>
+
+        <span class="c1"># Save NetCDF</span>
+        <span class="n">da_valid</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+            <span class="n">out</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;valid_mask&quot;</span><span class="p">,</span>
+            <span class="n">dims</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">),</span>
+            <span class="n">coords</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;storm&quot;</span><span class="p">:</span> <span class="n">storm_ids</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="n">ys</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">xs</span><span class="p">},</span>
+            <span class="n">attrs</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="s2">&quot;Valid storm-center mask (1=valid, 0=invalid). A cell P is valid for storm j &quot;</span>
+                    <span class="s2">&quot;iff c + (Cj - P) lies in the valid centroid region (c = watershed centroid).&quot;</span>
+                <span class="p">),</span>
+                <span class="s2">&quot;cell_size&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">cell</span><span class="p">),</span>
+                <span class="s2">&quot;crs&quot;</span><span class="p">:</span> <span class="n">grid_meta</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;crs_wkt&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shg_crs</span><span class="p">)),</span>
+            <span class="p">},</span>
+        <span class="p">)</span>
+        <span class="n">encoding</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;valid_mask&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;zlib&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;complevel&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+                <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="s2">&quot;uint8&quot;</span><span class="p">,</span>
+                <span class="c1"># &quot;_FillValue&quot;: np.uint8(0),   # &lt;-- REMOVE THIS LINE</span>
+                <span class="s2">&quot;chunksizes&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="n">rows</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="n">cols</span><span class="p">)),</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+        <span class="n">da_valid</span> <span class="o">=</span> <span class="n">da_valid</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span>
+        <span class="n">da_valid</span><span class="o">.</span><span class="n">to_netcdf</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">valid_mask_nc_path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="n">da_valid</span>
+
+    <span class="c1"># ---- save &amp; config ----</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_save_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Save cumulative precip (NetCDF) and storm centers (Parquet).&quot;&quot;&quot;</span>
+        <span class="n">storm_names</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">da_stack</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span>
+            <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">cumulative_precip</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">storm_names</span><span class="p">],</span>
+            <span class="n">dim</span><span class="o">=</span><span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span><span class="n">storm_names</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="s2">&quot;storm_path&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;storm_path&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">da_stack</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;cumulative_precip&quot;</span>
+        <span class="n">da_stack</span><span class="o">.</span><span class="n">to_netcdf</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nc_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">storm_centers</span><span class="o">.</span><span class="n">to_parquet</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storm_center_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">grid_meta</span><span class="p">:</span> <span class="n">Dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Persist paths to the on-disk artifacts (no valid-centroid region).&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;preprocessed&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;watershed_projected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">watershed_path_out</span><span class="p">,</span>
+            <span class="s2">&quot;domain_projected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_path_out</span><span class="p">,</span>
+            <span class="s2">&quot;cumulative_precip&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">nc_path</span><span class="p">,</span>
+            <span class="s2">&quot;storm_centers&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">storm_center_path</span><span class="p">,</span>
+            <span class="s2">&quot;spatial_stats&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">spatial_stats_path</span><span class="p">,</span>
+            <span class="s2">&quot;master_grid_meta&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">grid_meta_path</span><span class="p">,</span>
+            <span class="s2">&quot;valid_mask_nc&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">valid_mask_nc_path</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="n">out_config_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_folder</span><span class="p">,</span> <span class="s2">&quot;config.json&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">out_config_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># --------------- loader ---------------</span>
+<div class="viewcode-block" id="Preprocessor.load">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.preprocessor.Preprocessor.html#SSTImportanceSampling.preprocessor.Preprocessor.load">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="s2">&quot;Preprocessor&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Reload a preprocessed dataset from config.json.</span>
+<span class="sd">        Loads:</span>
+<span class="sd">          - projected watershed/domain (GPKG)</span>
+<span class="sd">          - cumulative_precip (NetCDF)</span>
+<span class="sd">          - storm_centers (Parquet)</span>
+<span class="sd">          - spatial_stats.json</span>
+<span class="sd">          - master_grid_meta.json </span>
+<span class="sd">          - valid_mask.nc</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">config_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+            <span class="n">config_path</span> <span class="o">=</span> <span class="n">config_path</span> <span class="o">/</span> <span class="s2">&quot;config.json&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No config.json at </span><span class="si">{</span><span class="n">config_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">config_path</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">pre</span> <span class="o">=</span> <span class="n">cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;preprocessed&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">pre</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Missing &#39;preprocessed&#39; section in config.json&quot;</span><span class="p">)</span>
+
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">output_folder</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="o">.</span><span class="n">parent</span><span class="p">))</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">cfg</span>
+
+        <span class="n">obj</span><span class="o">.</span><span class="n">watershed_gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">pre</span><span class="p">[</span><span class="s2">&quot;watershed_projected&quot;</span><span class="p">])</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">domain_gdf</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">pre</span><span class="p">[</span><span class="s2">&quot;domain_projected&quot;</span><span class="p">])</span>
+
+        <span class="n">ds_cum</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataset</span><span class="p">(</span><span class="n">pre</span><span class="p">[</span><span class="s2">&quot;cumulative_precip&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="s2">&quot;cumulative_precip&quot;</span> <span class="ow">in</span> <span class="n">ds_cum</span><span class="p">:</span>
+            <span class="n">da</span> <span class="o">=</span> <span class="n">ds_cum</span><span class="p">[</span><span class="s2">&quot;cumulative_precip&quot;</span><span class="p">]</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">cumulative_precip</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="nb">str</span><span class="p">(</span><span class="n">sid</span><span class="p">):</span> <span class="n">da</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">storm_path</span><span class="o">=</span><span class="n">sid</span><span class="p">)</span><span class="o">.</span><span class="n">drop_vars</span><span class="p">(</span><span class="s2">&quot;storm_path&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">sid</span> <span class="ow">in</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+            <span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">cumulative_precip</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;_stack&quot;</span><span class="p">:</span> <span class="n">ds_cum</span><span class="p">}</span>
+
+        <span class="n">obj</span><span class="o">.</span><span class="n">storm_centers</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="n">pre</span><span class="p">[</span><span class="s2">&quot;storm_centers&quot;</span><span class="p">])</span>
+
+        <span class="n">stats_path</span> <span class="o">=</span> <span class="n">pre</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;spatial_stats&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">stats_path</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">stats_path</span><span class="p">):</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">stats_path</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">stats</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">watershed_stats</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;watershed_stats&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">domain_stats</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;domain_stats&quot;</span><span class="p">,</span> <span class="p">{}))</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">spatial_stats_path</span> <span class="o">=</span> <span class="n">stats_path</span>
+
+        <span class="n">obj</span><span class="o">.</span><span class="n">grid_meta_path</span> <span class="o">=</span> <span class="n">pre</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;master_grid_meta&quot;</span><span class="p">)</span>
+
+        <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc_path</span> <span class="o">=</span> <span class="n">pre</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid_mask_nc&quot;</span><span class="p">)</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc_path</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc_path</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataarray</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc_path</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="n">ds_valid</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataset</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc_path</span><span class="p">)</span>
+                <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="n">ds_valid</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid_mask&quot;</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">:</span>
+                <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">valid_mask_nc</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">&quot;uint8&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">obj</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

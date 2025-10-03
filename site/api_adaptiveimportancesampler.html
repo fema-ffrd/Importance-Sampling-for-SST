@@ -1,0 +1,340 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adaptive Sampler Module &mdash; SSTImportanceSampling 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/design-tabs.js?v=f930bc37"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.html" />
+    <link rel="prev" title="SSTImportanceSampling.importancesampler.ImportanceSampler" href="generated/SSTImportanceSampling.importancesampler.ImportanceSampler.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            SSTImportanceSampling
+              <img src="_static/sst_importance_sampling_logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="preprocessing.html">Preprocessing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="importancesampling.html">Importance Sampling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adaptivesampling.html">Adaptive Importance Sampling</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="api_preprocessor.html">Preprocessor Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_importancesampler.html">Importance Sampler Module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Adaptive Sampler Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams"><code class="docutils literal notranslate"><span class="pre">AdaptParams</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.alpha"><code class="docutils literal notranslate"><span class="pre">AdaptParams.alpha</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_ceil"><code class="docutils literal notranslate"><span class="pre">AdaptParams.beta_ceil</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_floor"><code class="docutils literal notranslate"><span class="pre">AdaptParams.beta_floor</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.depth_threshold"><code class="docutils literal notranslate"><span class="pre">AdaptParams.depth_threshold</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_floor"><code class="docutils literal notranslate"><span class="pre">AdaptParams.eps_floor</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_var"><code class="docutils literal notranslate"><span class="pre">AdaptParams.eps_var</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.lambda_mix"><code class="docutils literal notranslate"><span class="pre">AdaptParams.lambda_mix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mix"><code class="docutils literal notranslate"><span class="pre">AdaptParams.mix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_n"><code class="docutils literal notranslate"><span class="pre">AdaptParams.mu_x_n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_w"><code class="docutils literal notranslate"><span class="pre">AdaptParams.mu_x_w</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_n"><code class="docutils literal notranslate"><span class="pre">AdaptParams.mu_y_n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_w"><code class="docutils literal notranslate"><span class="pre">AdaptParams.mu_y_w</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_n"><code class="docutils literal notranslate"><span class="pre">AdaptParams.rho_n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_w"><code class="docutils literal notranslate"><span class="pre">AdaptParams.rho_w</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_n"><code class="docutils literal notranslate"><span class="pre">AdaptParams.sd_x_n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_w"><code class="docutils literal notranslate"><span class="pre">AdaptParams.sd_x_w</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_n"><code class="docutils literal notranslate"><span class="pre">AdaptParams.sd_y_n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_w"><code class="docutils literal notranslate"><span class="pre">AdaptParams.sd_y_w</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler"><code class="docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt"><code class="docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler.adapt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final"><code class="docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler.sample_final()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#classes-and-functions">Classes and Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.html">SSTImportanceSampling.adaptiveimportancesampler.AdaptParams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.html">SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt.html">SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final.html">SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api_stormdepthprocessor.html">StormDepthProcessor Module</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">SSTImportanceSampling</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Adaptive Sampler Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api_adaptiveimportancesampler.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-SSTImportanceSampling.adaptiveimportancesampler">
+<span id="adaptive-sampler-module"></span><h1>Adaptive Sampler Module<a class="headerlink" href="#module-SSTImportanceSampling.adaptiveimportancesampler" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">SSTImportanceSampling.adaptiveimportancesampler.</span></span><span class="sig-name descname"><span class="pre">AdaptParams</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu_x_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu_y_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sd_x_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sd_y_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rho_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu_x_w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu_y_w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sd_x_w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sd_y_w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rho_w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_mix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">beta_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">beta_ceil</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.95</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.25</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps_var</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">depth_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-300</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/adaptiveimportancesampler.html#AdaptParams"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.alpha">
+<span class="sig-name descname"><span class="pre">alpha</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.25</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.alpha" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_ceil">
+<span class="sig-name descname"><span class="pre">beta_ceil</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.95</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_ceil" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_floor">
+<span class="sig-name descname"><span class="pre">beta_floor</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.05</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.beta_floor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.depth_threshold">
+<span class="sig-name descname"><span class="pre">depth_threshold</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.depth_threshold" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_floor">
+<span class="sig-name descname"><span class="pre">eps_floor</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1e-300</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_floor" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_var">
+<span class="sig-name descname"><span class="pre">eps_var</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1e-06</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.eps_var" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.lambda_mix">
+<span class="sig-name descname"><span class="pre">lambda_mix</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.3</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.lambda_mix" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mix">
+<span class="sig-name descname"><span class="pre">mix</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.3</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mix" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_n">
+<span class="sig-name descname"><span class="pre">mu_x_n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_n" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_w">
+<span class="sig-name descname"><span class="pre">mu_x_w</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_x_w" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_n">
+<span class="sig-name descname"><span class="pre">mu_y_n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_n" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_w">
+<span class="sig-name descname"><span class="pre">mu_y_w</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.mu_y_w" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_n">
+<span class="sig-name descname"><span class="pre">rho_n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_n" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_w">
+<span class="sig-name descname"><span class="pre">rho_w</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.rho_w" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_n">
+<span class="sig-name descname"><span class="pre">sd_x_n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_n" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_w">
+<span class="sig-name descname"><span class="pre">sd_x_w</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_x_w" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_n">
+<span class="sig-name descname"><span class="pre">sd_y_n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_n" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_w">
+<span class="sig-name descname"><span class="pre">sd_y_w</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.0</span></em><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.sd_y_w" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">SSTImportanceSampling.adaptiveimportancesampler.</span></span><span class="sig-name descname"><span class="pre">AdaptiveMixtureSampler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precip_cube</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">align_precip</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">align_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nearest'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/adaptiveimportancesampler.html#AdaptiveMixtureSampler"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Adaptive mixture sampler on valid cells,</p>
+<dl class="simple">
+<dt>Required on <cite>data</cite>:</dt><dd><ul class="simple">
+<li><p>valid_mask_nc : xr.DataArray (‘storm’,’y’,’x’), values in {0,1}</p></li>
+<li><p>storm_centers : pd.DataFrame with [‘storm_path’,’x’,’y’]</p></li>
+<li><p>watershed_stats : dict-like or Series with [‘x’,’y’] (for default μ)</p></li>
+<li><p>cumulative_precip : xr.DataArray (‘storm’,’y’,’x’) or dict[str-&gt;xr.DataArray(y,x)]</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt">
+<span class="sig-name descname"><span class="pre">adapt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">num_iterations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">samples_per_iter</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">depth_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/adaptiveimportancesampler.html#AdaptiveMixtureSampler.adapt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt" title="Link to this definition"></a></dt>
+<dd><p>Adaptive sampling loop with reward-weighted EM (optional depth threshold).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></span></p>
+</dd>
+</dl>
+<dl class="simple">
+<dt>Each iteration:</dt><dd><ol class="arabic simple">
+<li><p>Draw <code class="docutils literal notranslate"><span class="pre">samples_per_iter</span></code> valid cells across storms.</p></li>
+<li><p>Compute self-normalized importance weights.</p></li>
+<li><p>Evaluate watershed-average depths at shifted storm centers.</p></li>
+<li><p>Update mixture responsibilities and mixture weight using rewards.</p></li>
+<li><p>Moment-match narrow distribution parameters.</p></li>
+<li><p>Rebuild proposal for the next iteration.</p></li>
+<li><p>Append a minimal history snapshot.</p></li>
+</ol>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>num_iterations</strong> (<em>int</em>) – Number of adaptation iterations to run.</p></li>
+<li><p><strong>samples_per_iter</strong> (<em>int</em>) – Number of samples drawn per iteration.</p></li>
+<li><p><strong>depth_threshold</strong> (<em>float</em><em>, </em><em>default 0.0</em>) – Samples with depth below this threshold contribute zero reward.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>History with columns:
+<code class="docutils literal notranslate"><span class="pre">['iter','n','updated','mix','mu_x_n','mu_y_n','sd_x_n','sd_y_n','rho_n','beta_hat_reward']</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>pandas.DataFrame</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final">
+<span class="sig-name descname"><span class="pre">sample_final</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_depths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/adaptiveimportancesampler.html#AdaptiveMixtureSampler.sample_final"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final" title="Link to this definition"></a></dt>
+<dd><p>Final draws from the adapted proposal.
+Uses the same valid-cell logic and weights as in the adapt loop.
+Distinct, stored seed per realization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<section id="classes-and-functions">
+<h2>Classes and Functions<a class="headerlink" href="#classes-and-functions" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptParams</span></code></a></p></td>
+<td><p>AdaptParams(mu_x_n: 'Optional[float]' = None, mu_y_n: 'Optional[float]' = None, sd_x_n: 'float' = 1.0, sd_y_n: 'float' = 1.0, rho_n: 'float' = 0.0, mu_x_w: 'Optional[float]' = None, mu_y_w: 'Optional[float]' = None, sd_x_w: 'float' = 1.0, sd_y_w: 'float' = 1.0, rho_w: 'float' = 0.0, mix: 'float' = 0.3, lambda_mix: 'float' = 0.3, beta_floor: 'float' = 0.05, beta_ceil: 'float' = 0.95, alpha: 'float' = 0.25, eps_var: 'float' = 1e-06, depth_threshold: 'float' = 0.0, eps_floor: 'float' = 1e-300)</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler</span></code></a></p></td>
+<td><p>Adaptive mixture sampler on valid cells,</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler.adapt</span></code></a></p></td>
+<td><p>Adaptive sampling loop with reward-weighted EM (optional depth threshold).</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptiveMixtureSampler.sample_final</span></code></a></p></td>
+<td><p>Final draws from the adapted proposal.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="generated/SSTImportanceSampling.importancesampler.ImportanceSampler.html" class="btn btn-neutral float-left" title="SSTImportanceSampling.importancesampler.ImportanceSampler" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.html" class="btn btn-neutral float-right" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptParams" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,694 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSTImportanceSampling.adaptiveimportancesampler &mdash; SSTImportanceSampling 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            SSTImportanceSampling
+              <img src="../../_static/sst_importance_sampling_logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../quick_start.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../preprocessing.html">Preprocessing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../importancesampling.html">Importance Sampling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../adaptivesampling.html">Adaptive Importance Sampling</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_preprocessor.html">Preprocessor Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_importancesampler.html">Importance Sampler Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_adaptiveimportancesampler.html">Adaptive Sampler Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_stormdepthprocessor.html">StormDepthProcessor Module</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">SSTImportanceSampling</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">SSTImportanceSampling.adaptiveimportancesampler</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for SSTImportanceSampling.adaptiveimportancesampler</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">List</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">geopandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gpd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">truncnorm</span><span class="p">,</span> <span class="n">norm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">shapely.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rasterio.features</span><span class="w"> </span><span class="kn">import</span> <span class="n">geometry_mask</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">affine</span><span class="w"> </span><span class="kn">import</span> <span class="n">Affine</span>
+
+<span class="c1"># ----------------------------- params -----------------------------</span>
+<div class="viewcode-block" id="AdaptParams">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptParams.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptParams">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">AdaptParams</span><span class="p">:</span>
+    <span class="c1"># Narrow (ADAPTED)</span>
+    <span class="n">mu_x_n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">mu_y_n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">sd_x_n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">sd_y_n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">rho_n</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="c1"># Wide (FIXED)</span>
+    <span class="n">mu_x_w</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">mu_y_w</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">sd_x_w</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">sd_y_w</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">rho_w</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="c1"># Mixture &amp; smoothing</span>
+    <span class="n">mix</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.30</span>
+    <span class="n">lambda_mix</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.30</span>
+    <span class="n">beta_floor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.05</span>
+    <span class="n">beta_ceil</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.95</span>
+
+    <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span>
+    <span class="n">eps_var</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span>
+
+    <span class="n">depth_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+        
+    <span class="c1"># Numeric stability</span>
+    <span class="n">eps_floor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-300</span></div>
+
+
+<span class="c1"># -------------------------- helpers (q_base) --------------------------</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_truncnorm_objs</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span><span class="nb">float</span><span class="p">,</span><span class="nb">float</span><span class="p">,</span><span class="nb">float</span><span class="p">],</span> <span class="n">mx</span><span class="p">,</span> <span class="n">my</span><span class="p">,</span> <span class="n">sx</span><span class="p">,</span> <span class="n">sy</span><span class="p">):</span>
+    <span class="n">xmin</span><span class="p">,</span> <span class="n">ymin</span><span class="p">,</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">ymax</span> <span class="o">=</span> <span class="n">bounds</span>
+    <span class="n">ax</span><span class="p">,</span> <span class="n">bx</span> <span class="o">=</span> <span class="p">(</span><span class="n">xmin</span> <span class="o">-</span> <span class="n">mx</span><span class="p">)</span><span class="o">/</span><span class="n">sx</span><span class="p">,</span> <span class="p">(</span><span class="n">xmax</span> <span class="o">-</span> <span class="n">mx</span><span class="p">)</span><span class="o">/</span><span class="n">sx</span>
+    <span class="n">ay</span><span class="p">,</span> <span class="n">by</span> <span class="o">=</span> <span class="p">(</span><span class="n">ymin</span> <span class="o">-</span> <span class="n">my</span><span class="p">)</span><span class="o">/</span><span class="n">sy</span><span class="p">,</span> <span class="p">(</span><span class="n">ymax</span> <span class="o">-</span> <span class="n">my</span><span class="p">)</span><span class="o">/</span><span class="n">sy</span>
+    <span class="k">return</span> <span class="n">truncnorm</span><span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">bx</span><span class="p">,</span> <span class="n">loc</span><span class="o">=</span><span class="n">mx</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="n">sx</span><span class="p">),</span> <span class="n">truncnorm</span><span class="p">(</span><span class="n">ay</span><span class="p">,</span> <span class="n">by</span><span class="p">,</span> <span class="n">loc</span><span class="o">=</span><span class="n">my</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="n">sy</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_qbase_gaussian_copula</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span> <span class="n">mx</span><span class="p">,</span> <span class="n">my</span><span class="p">,</span> <span class="n">sx</span><span class="p">,</span> <span class="n">sy</span><span class="p">,</span> <span class="n">rho</span><span class="p">,</span> <span class="n">eps_floor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">tx</span><span class="p">,</span> <span class="n">ty</span> <span class="o">=</span> <span class="n">_truncnorm_objs</span><span class="p">(</span><span class="n">bounds</span><span class="p">,</span> <span class="n">mx</span><span class="p">,</span> <span class="n">my</span><span class="p">,</span> <span class="n">sx</span><span class="p">,</span> <span class="n">sy</span><span class="p">)</span>
+    <span class="n">fx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">tx</span><span class="o">.</span><span class="n">pdf</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">eps_floor</span><span class="p">)</span>  <span class="c1"># (nx,)</span>
+    <span class="n">fy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">ty</span><span class="o">.</span><span class="n">pdf</span><span class="p">(</span><span class="n">ys</span><span class="p">),</span> <span class="n">eps_floor</span><span class="p">)</span>  <span class="c1"># (ny,)</span>
+    <span class="n">Fx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">tx</span><span class="o">.</span><span class="n">cdf</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="mf">1e-15</span><span class="p">,</span> <span class="mi">1</span><span class="o">-</span><span class="mf">1e-15</span><span class="p">)</span>
+    <span class="n">Fy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">ty</span><span class="o">.</span><span class="n">cdf</span><span class="p">(</span><span class="n">ys</span><span class="p">),</span> <span class="mf">1e-15</span><span class="p">,</span> <span class="mi">1</span><span class="o">-</span><span class="mf">1e-15</span><span class="p">)</span>
+    <span class="n">zx</span> <span class="o">=</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">Fx</span><span class="p">)</span>                       <span class="c1"># (nx,)</span>
+    <span class="n">zy</span> <span class="o">=</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">Fy</span><span class="p">)</span>                       <span class="c1"># (ny,)</span>
+
+    <span class="n">one_minus_r2</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">rho</span><span class="o">*</span><span class="n">rho</span>
+    <span class="n">const</span> <span class="o">=</span> <span class="o">-</span><span class="mf">0.5</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">log1p</span><span class="p">(</span><span class="o">-</span><span class="n">rho</span><span class="o">*</span><span class="n">rho</span><span class="p">)</span>
+    <span class="n">Zx</span> <span class="o">=</span> <span class="n">zx</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>
+    <span class="n">Zy</span> <span class="o">=</span> <span class="n">zy</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="n">A</span> <span class="o">=</span> <span class="mf">0.5</span><span class="o">*</span><span class="p">(</span><span class="n">Zx</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">Zy</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">B</span> <span class="o">=</span> <span class="mf">0.5</span><span class="o">*</span><span class="p">((</span><span class="n">Zx</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="mf">2.0</span><span class="o">*</span><span class="n">rho</span><span class="o">*</span><span class="n">Zx</span><span class="o">*</span><span class="n">Zy</span> <span class="o">+</span> <span class="n">Zy</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">one_minus_r2</span><span class="p">)</span>
+    <span class="n">qcop</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">const</span> <span class="o">+</span> <span class="p">(</span><span class="n">A</span> <span class="o">-</span> <span class="n">B</span><span class="p">))</span>
+    <span class="n">q2d</span> <span class="o">=</span> <span class="n">qcop</span> <span class="o">*</span> <span class="p">(</span><span class="n">fy</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">fx</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:])</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">q2d</span><span class="p">,</span> <span class="n">eps_floor</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_qbase_mixture</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span> <span class="n">p</span><span class="p">:</span> <span class="n">AdaptParams</span><span class="p">,</span> <span class="n">eps_floor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">q_n</span> <span class="o">=</span> <span class="n">_qbase_gaussian_copula</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span>
+                                 <span class="n">mx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span><span class="p">,</span> <span class="n">my</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span><span class="p">,</span>
+                                 <span class="n">sx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span><span class="p">,</span> <span class="n">sy</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span><span class="p">,</span>
+                                 <span class="n">rho</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">rho_n</span><span class="p">,</span> <span class="n">eps_floor</span><span class="o">=</span><span class="n">eps_floor</span><span class="p">)</span>
+    <span class="n">q_w</span> <span class="o">=</span> <span class="n">_qbase_gaussian_copula</span><span class="p">(</span><span class="n">xs</span><span class="p">,</span> <span class="n">ys</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span>
+                                 <span class="n">mx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_x_w</span><span class="p">,</span> <span class="n">my</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_y_w</span><span class="p">,</span>
+                                 <span class="n">sx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_w</span><span class="p">,</span> <span class="n">sy</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_w</span><span class="p">,</span>
+                                 <span class="n">rho</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">rho_w</span><span class="p">,</span> <span class="n">eps_floor</span><span class="o">=</span><span class="n">eps_floor</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">*</span> <span class="n">q_n</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">mix</span><span class="p">)</span> <span class="o">*</span> <span class="n">q_w</span><span class="p">,</span> <span class="n">eps_floor</span><span class="p">)</span>
+
+<span class="c1"># ------------------------ main adaptive class ------------------------</span>
+<div class="viewcode-block" id="AdaptiveMixtureSampler">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">AdaptiveMixtureSampler</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Adaptive mixture sampler on valid cells,</span>
+
+<span class="sd">    Required on `data`:</span>
+<span class="sd">      - valid_mask_nc : xr.DataArray (&#39;storm&#39;,&#39;y&#39;,&#39;x&#39;), values in {0,1}</span>
+<span class="sd">      - storm_centers : pd.DataFrame with [&#39;storm_path&#39;,&#39;x&#39;,&#39;y&#39;]</span>
+<span class="sd">      - watershed_stats : dict-like or Series with [&#39;x&#39;,&#39;y&#39;] (for default μ)</span>
+<span class="sd">      - cumulative_precip : xr.DataArray (&#39;storm&#39;,&#39;y&#39;,&#39;x&#39;) or dict[str-&gt;xr.DataArray(y,x)]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="AdaptiveMixtureSampler.__init__">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                 <span class="n">data</span><span class="p">,</span>
+                 <span class="n">params</span><span class="p">:</span> <span class="n">AdaptParams</span><span class="p">,</span>
+                 <span class="n">precip_cube</span><span class="p">:</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span> <span class="o">|</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">align_precip</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+                 <span class="n">align_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;nearest&quot;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="n">params</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+
+        <span class="c1"># ---- validate inputs ----</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;valid_mask_nc&quot;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`data` must have attribute `valid_mask_nc` (xarray DataArray).&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;storm_centers&quot;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`data` must have attribute `storm_centers` (DataFrame).&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="p">:</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">valid_mask_nc</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">{</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">}</span> <span class="o">&lt;=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="o">.</span><span class="n">dims</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;valid_mask_nc must have dims (&#39;storm&#39;,&#39;y&#39;,&#39;x&#39;).&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Grid and bounds from mask</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">xs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ys</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rowsN</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bounds</span> <span class="o">=</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="c1"># --- grid spacing &amp; affine (centers -&gt; upper-left origin)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transform</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">Affine</span><span class="o">.</span><span class="n">translation</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">dx</span><span class="o">/</span><span class="mf">2.0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">dy</span><span class="o">/</span><span class="mf">2.0</span><span class="p">)</span>
+            <span class="o">*</span> <span class="n">Affine</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dx</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dy</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># --- watershed mask</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;watershed_gdf&quot;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;`data` must have attribute `watershed_gdf` to compute watershed-mean depths.&quot;</span><span class="p">)</span>
+        <span class="n">ws_gdf</span><span class="p">:</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoDataFrame</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">watershed_gdf</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">watershed_mask</span> <span class="o">=</span> <span class="n">geometry_mask</span><span class="p">(</span>
+            <span class="n">geometries</span><span class="o">=</span><span class="p">[</span><span class="n">mapping</span><span class="p">(</span><span class="n">geom</span><span class="p">)</span> <span class="k">for</span> <span class="n">geom</span> <span class="ow">in</span> <span class="n">ws_gdf</span><span class="o">.</span><span class="n">geometry</span><span class="p">],</span>
+            <span class="n">out_shape</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rowsN</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span><span class="p">),</span>
+            <span class="n">transform</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">transform</span><span class="p">,</span>
+            <span class="n">invert</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># configurable edge handling</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero_pad_edges</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># or make this a __init__ kwarg if you want to toggle</span>
+        <span class="c1"># Centers table filtered to mask storms</span>
+        <span class="n">centers_df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">storm_centers</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">need_cols</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;storm_path&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">need_cols</span> <span class="o">&lt;=</span> <span class="nb">set</span><span class="p">(</span><span class="n">centers_df</span><span class="o">.</span><span class="n">columns</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;storm_centers must contain columns [&#39;storm_path&#39;,&#39;x&#39;,&#39;y&#39;].&quot;</span><span class="p">)</span>
+        <span class="n">storms_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="p">[</span><span class="s2">&quot;storm&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="n">centers_df</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">centers_df</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+        <span class="n">centers_df</span> <span class="o">=</span> <span class="n">centers_df</span><span class="p">[</span><span class="n">centers_df</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">storms_mask</span><span class="p">)]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">centers_df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No overlapping storms between valid_mask_nc and storm_centers.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">centers_df</span> <span class="o">=</span> <span class="n">centers_df</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">storms</span> <span class="o">=</span> <span class="n">centers_df</span><span class="p">[</span><span class="s2">&quot;storm_path&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">s2i</span> <span class="o">=</span> <span class="p">{</span><span class="n">s</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storms</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">orig_xy</span> <span class="o">=</span> <span class="n">centers_df</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s2">&quot;storm_path&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">storms</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+
+        <span class="c1"># Default μ from watershed centroid</span>
+        <span class="n">ws_stats</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;watershed_stats&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ws_stats</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">ws_stats</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ws_stats</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">):</span>
+            <span class="n">ws_stats</span> <span class="o">=</span> <span class="n">ws_stats</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ws_stats</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">ws_stats</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">x</span><span class="p">),</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">y</span><span class="p">)}</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="n">ws_stats</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_n</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_n</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_w</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_w</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_w</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_w</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ws_stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_n</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_n</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Narrow means not set and watershed_stats[x,y] unavailable.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_x_w</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">mu_y_w</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Wide means not set and watershed_stats[x,y] unavailable.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># ---- per-storm valid sets from mask ----</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">qb_dummy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">rowsN</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span><span class="p">))</span>  <span class="c1"># placeholder; real qb in _rebuild_q_base</span>
+        <span class="n">flat_all</span> <span class="o">=</span> <span class="n">qb_dummy</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">storms</span><span class="p">:</span>
+            <span class="n">m2d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mask_da</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">storm</span><span class="o">=</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span>
+            <span class="n">flat_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">m2d</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">flat_idx</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;flat_idx&quot;</span><span class="p">:</span> <span class="n">flat_idx</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="n">flat_idx</span><span class="o">.</span><span class="n">size</span><span class="p">}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;All storms have empty valid sets; cannot sample.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># ---- build q_base on mask grid ----</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_q_base</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">precip_cube</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">raw_precip</span> <span class="o">=</span> <span class="n">precip_cube</span> <span class="k">if</span> <span class="n">precip_cube</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;cumulative_precip&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">raw_precip</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">precip_cube</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_and_align_precip</span><span class="p">(</span><span class="n">raw_precip</span><span class="p">,</span> <span class="n">align</span><span class="o">=</span><span class="n">align_precip</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">align_method</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">history</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span></div>
+
+
+    <span class="c1"># ---------------------- q_base &amp; Z_J -----------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_rebuild_q_base</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build q_base and per-storm Z_J, and also cache component grids q_n, q_w</span>
+<span class="sd">        so we can compute responsibilities quickly at sampled cells.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span>
+        <span class="c1"># component grids</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qn2d</span> <span class="o">=</span> <span class="n">_qbase_gaussian_copula</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds</span><span class="p">,</span>
+            <span class="n">mx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span><span class="p">,</span> <span class="n">my</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span><span class="p">,</span> <span class="n">sx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span><span class="p">,</span> <span class="n">sy</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">rho_n</span><span class="p">,</span>
+            <span class="n">eps_floor</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">eps_floor</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qw2d</span> <span class="o">=</span> <span class="n">_qbase_gaussian_copula</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds</span><span class="p">,</span>
+            <span class="n">mx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_x_w</span><span class="p">,</span> <span class="n">my</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">mu_y_w</span><span class="p">,</span> <span class="n">sx</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_w</span><span class="p">,</span> <span class="n">sy</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_w</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">rho_w</span><span class="p">,</span>
+            <span class="n">eps_floor</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">eps_floor</span>
+        <span class="p">)</span>
+        <span class="c1"># mixture on grid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q2d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">qn2d</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">mix</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">qw2d</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_floor</span><span class="p">)</span>
+
+        <span class="c1"># flatten caches for fast indexing at sampled cells</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_flat</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q2d</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qn_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qn2d</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qw_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qw2d</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Z_J per storm = sum of q_base over that storm&#39;s valid set V_J</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">ps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+            <span class="n">qb_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_flat</span><span class="p">[</span><span class="n">ps</span><span class="p">[</span><span class="s2">&quot;flat_idx&quot;</span><span class="p">]]</span>
+            <span class="n">Zj</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">qb_vals</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+            <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;qb_vals&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">qb_vals</span>
+            <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;Z&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">Zj</span>
+
+    <span class="c1"># ------------------- precip normalization/alignment -------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_normalize_and_align_precip</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">raw</span><span class="p">,</span> <span class="n">align</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">:</span>
+        <span class="c1"># Normalize to DataArray(&#39;storm&#39;,&#39;y&#39;,&#39;x&#39;) with ascending x/y</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_da</span><span class="p">(</span><span class="n">da</span><span class="p">:</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">:</span>
+            <span class="n">dims</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">da</span><span class="o">.</span><span class="n">dims</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s2">&quot;storm&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">dims</span> <span class="ow">and</span> <span class="s2">&quot;storm_path&quot;</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
+                <span class="n">da</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">rename</span><span class="p">({</span><span class="s2">&quot;storm_path&quot;</span><span class="p">:</span> <span class="s2">&quot;storm&quot;</span><span class="p">})</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">{</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">}</span> <span class="o">&lt;=</span> <span class="nb">set</span><span class="p">(</span><span class="n">da</span><span class="o">.</span><span class="n">dims</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;precip DataArray must have dims (&#39;storm&#39;,&#39;y&#39;,&#39;x&#39;) or pass a dict[str-&gt;2D].&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+                <span class="n">da</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">sortby</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+                <span class="n">da</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">sortby</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">da</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s2">&quot;cumulative_precip&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">raw</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Dataset must contain variable &#39;cumulative_precip&#39;.&quot;</span><span class="p">)</span>
+            <span class="n">cube</span> <span class="o">=</span> <span class="n">_ensure_da</span><span class="p">(</span><span class="n">raw</span><span class="p">[</span><span class="s2">&quot;cumulative_precip&quot;</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">):</span>
+            <span class="n">cube</span> <span class="o">=</span> <span class="n">_ensure_da</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">names</span><span class="p">,</span> <span class="n">arrs</span><span class="p">,</span> <span class="n">xs_ref</span><span class="p">,</span> <span class="n">ys_ref</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">da</span> <span class="ow">in</span> <span class="n">raw</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">da</span><span class="p">,</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">da</span><span class="o">.</span><span class="n">dims</span> <span class="ow">or</span> <span class="s2">&quot;y&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">da</span><span class="o">.</span><span class="n">dims</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Each dict value must be xr.DataArray with dims (&#39;y&#39;,&#39;x&#39;).&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+                    <span class="n">da</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">sortby</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+                    <span class="n">da</span> <span class="o">=</span> <span class="n">da</span><span class="o">.</span><span class="n">sortby</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">xs_ref</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">xs_ref</span><span class="p">,</span> <span class="n">ys_ref</span> <span class="o">=</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">xs_ref</span><span class="p">,</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">ys_ref</span><span class="p">,</span> <span class="n">da</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)):</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;All dict precip arrays must share identical x/y coords.&quot;</span><span class="p">)</span>
+                <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">));</span> <span class="n">arrs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">da</span><span class="p">)</span>
+            <span class="n">cube</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">arrs</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="s2">&quot;storm&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">assign_coords</span><span class="p">(</span><span class="n">storm</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">str</span><span class="p">))</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;Unsupported precip type.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Filter to storms we actually use</span>
+        <span class="n">cube</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">storm</span><span class="o">=</span><span class="n">cube</span><span class="p">[</span><span class="s2">&quot;storm&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storms</span><span class="p">))</span>
+        <span class="c1"># Align to MASK grid if requested or required</span>
+        <span class="n">xs_p</span> <span class="o">=</span> <span class="n">cube</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">;</span> <span class="n">ys_p</span> <span class="o">=</span> <span class="n">cube</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">same</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">xs_p</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">)</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">ys_p</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">same</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">align</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;precip x/y must match mask x/y; set align_precip=True to auto-align.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">same</span><span class="p">:</span>
+            <span class="c1"># nearest (default) or linear interpolation onto mask grid</span>
+            <span class="n">cube</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">interp</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">),</span> <span class="n">y</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">),</span> <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cube</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;storm&quot;</span><span class="p">,</span><span class="s2">&quot;y&quot;</span><span class="p">,</span><span class="s2">&quot;x&quot;</span><span class="p">)</span>
+
+    <span class="c1"># ---------------------------- sampling core ----------------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_sample_valid_cells</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">rng</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">Generator</span><span class="p">):</span>
+        <span class="c1"># 1) storms uniformly among those with ≥1 valid cell</span>
+        <span class="n">storms</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storms</span>
+        <span class="n">S</span> <span class="o">=</span> <span class="n">storms</span><span class="o">.</span><span class="n">size</span>
+        <span class="n">chosen_idx</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">chosen_storms</span> <span class="o">=</span> <span class="n">storms</span><span class="p">[</span><span class="n">chosen_idx</span><span class="p">]</span>
+
+        <span class="c1"># 2) pick a valid cell per storm, ∝ q_base on that storm&#39;s V_J</span>
+        <span class="n">chosen_flat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+        <span class="n">w_raw</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+        <span class="n">uniq</span><span class="p">,</span> <span class="n">inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">chosen_storms</span><span class="p">,</span> <span class="n">return_inverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">sname</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">uniq</span><span class="p">):</span>
+            <span class="n">take</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">inv</span> <span class="o">==</span> <span class="n">k</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">ps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">per_storm</span><span class="p">[</span><span class="n">sname</span><span class="p">]</span>
+            <span class="n">flat_idx</span> <span class="o">=</span> <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;flat_idx&quot;</span><span class="p">]</span>
+            <span class="n">qb_vals</span> <span class="o">=</span> <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;qb_vals&quot;</span><span class="p">];</span> <span class="n">Zj</span> <span class="o">=</span> <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;Z&quot;</span><span class="p">];</span> <span class="n">cnt</span> <span class="o">=</span> <span class="n">ps</span><span class="p">[</span><span class="s2">&quot;count&quot;</span><span class="p">]</span>
+
+            <span class="n">p</span> <span class="o">=</span> <span class="n">qb_vals</span> <span class="o">/</span> <span class="p">(</span><span class="n">Zj</span> <span class="k">if</span> <span class="n">Zj</span> <span class="o">&gt;</span> <span class="mf">0.0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">tiny</span><span class="p">)</span>
+            <span class="n">idx_local</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">qb_vals</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">take</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">p</span><span class="p">)</span>
+            <span class="n">chosen_flat</span><span class="p">[</span><span class="n">take</span><span class="p">]</span> <span class="o">=</span> <span class="n">flat_idx</span><span class="p">[</span><span class="n">idx_local</span><span class="p">]</span>
+            <span class="n">q_at_p</span> <span class="o">=</span> <span class="n">qb_vals</span><span class="p">[</span><span class="n">idx_local</span><span class="p">]</span>
+            <span class="n">w_raw</span><span class="p">[</span><span class="n">take</span><span class="p">]</span> <span class="o">=</span> <span class="n">Zj</span> <span class="o">/</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">cnt</span><span class="p">)</span> <span class="o">*</span> <span class="n">q_at_p</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">chosen_storms</span><span class="p">,</span> <span class="n">chosen_flat</span><span class="p">,</span> <span class="n">w_raw</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_flat_to_xy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flat_idx</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+        <span class="n">ii</span> <span class="o">=</span> <span class="n">flat_idx</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span>
+        <span class="n">jj</span> <span class="o">=</span> <span class="n">flat_idx</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">[</span><span class="n">jj</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span>
+
+    <span class="c1"># ------------------------- depths / hits ---------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_depths_for</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chosen_storms</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">chosen_flat</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Compute watershed-mean cumulative precip exactly like StormDepthProcessor:</span>
+<span class="sd">        - integer cell shifts from physical offsets using dx,dy</span>
+<span class="sd">        - zero-pad rolled edges</span>
+<span class="sd">        - mean over watershed mask pixels</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">precip_cube</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">chosen_storms</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+        <span class="n">depths</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">chosen_storms</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+        <span class="c1"># flatten -&gt; (i,j) -&gt; (newx,newy)</span>
+        <span class="n">ii</span> <span class="o">=</span> <span class="n">chosen_flat</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span>
+        <span class="n">jj</span> <span class="o">=</span> <span class="n">chosen_flat</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">colsN</span>
+        <span class="n">newx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">xs</span><span class="p">[</span><span class="n">jj</span><span class="p">]</span>
+        <span class="n">newy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ys</span><span class="p">[</span><span class="n">ii</span><span class="p">]</span>
+
+        <span class="c1"># original centers per storm</span>
+        <span class="n">x0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_xy</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">y0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_xy</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">chosen_storms</span><span class="p">):</span>
+            <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">s2i</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="c1"># integer cell offsets computed from physical deltas</span>
+            <span class="n">dx_cells</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="nb">float</span><span class="p">(</span><span class="n">newx</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">x0</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">dx</span><span class="p">))</span>
+            <span class="n">dy_cells</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">((</span><span class="nb">float</span><span class="p">(</span><span class="n">newy</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">y0</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">dy</span><span class="p">))</span>
+
+            <span class="c1"># take storm precip field and roll</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">precip_cube</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">storm</span><span class="o">=</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>  <span class="c1"># (rows, cols)</span>
+            <span class="n">shifted</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">roll</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">shift</span><span class="o">=</span><span class="p">(</span><span class="n">dy_cells</span><span class="p">,</span> <span class="n">dx_cells</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+
+            <span class="c1"># cut rolled edges exactly like processor</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_pad_edges</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">dy_cells</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>   <span class="n">shifted</span><span class="p">[:</span><span class="n">dy_cells</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="mf">0.0</span>
+                <span class="k">elif</span> <span class="n">dy_cells</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="n">shifted</span><span class="p">[</span><span class="n">dy_cells</span><span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="mf">0.0</span>
+                <span class="k">if</span> <span class="n">dx_cells</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>   <span class="n">shifted</span><span class="p">[:,</span> <span class="p">:</span><span class="n">dx_cells</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+                <span class="k">elif</span> <span class="n">dx_cells</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="n">shifted</span><span class="p">[:,</span> <span class="n">dx_cells</span><span class="p">:]</span> <span class="o">=</span> <span class="mf">0.0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">dy_cells</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>   <span class="n">shifted</span><span class="p">[:</span><span class="n">dy_cells</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+                <span class="k">elif</span> <span class="n">dy_cells</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="n">shifted</span><span class="p">[</span><span class="n">dy_cells</span><span class="p">:,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+                <span class="k">if</span> <span class="n">dx_cells</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>   <span class="n">shifted</span><span class="p">[:,</span> <span class="p">:</span><span class="n">dx_cells</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+                <span class="k">elif</span> <span class="n">dx_cells</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="n">shifted</span><span class="p">[:,</span> <span class="n">dx_cells</span><span class="p">:]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+            <span class="c1"># select watershed pixels (the key difference)</span>
+            <span class="n">vals</span> <span class="o">=</span> <span class="n">shifted</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">watershed_mask</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_pad_edges</span><span class="p">:</span>
+                <span class="c1"># treat residual NaNs as 0.0 and take the mean over the mask</span>
+                <span class="n">depths</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">vals</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="k">if</span> <span class="n">vals</span><span class="o">.</span><span class="n">size</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">depths</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="k">else</span> <span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">vals</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="k">if</span> <span class="n">vals</span><span class="o">.</span><span class="n">size</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">depths</span>
+
+
+    <span class="c1"># -------------------------------- adapt --------------------------------</span>
+<div class="viewcode-block" id="AdaptiveMixtureSampler.adapt">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.adapt">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">adapt</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">num_iterations</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">samples_per_iter</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">depth_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Adaptive sampling loop with reward-weighted EM (optional depth threshold).</span>
+
+<span class="sd">        Each iteration:</span>
+<span class="sd">            1. Draw ``samples_per_iter`` valid cells across storms.  </span>
+<span class="sd">            2. Compute self-normalized importance weights.  </span>
+<span class="sd">            3. Evaluate watershed-average depths at shifted storm centers.  </span>
+<span class="sd">            4. Update mixture responsibilities and mixture weight using rewards.  </span>
+<span class="sd">            5. Moment-match narrow distribution parameters.  </span>
+<span class="sd">            6. Rebuild proposal for the next iteration.  </span>
+<span class="sd">            7. Append a minimal history snapshot.  </span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        num_iterations : int</span>
+<span class="sd">            Number of adaptation iterations to run.</span>
+<span class="sd">        samples_per_iter : int</span>
+<span class="sd">            Number of samples drawn per iteration.</span>
+<span class="sd">        depth_threshold : float, default 0.0</span>
+<span class="sd">            Samples with depth below this threshold contribute zero reward.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        pandas.DataFrame</span>
+<span class="sd">            History with columns:  </span>
+<span class="sd">            ``[&#39;iter&#39;,&#39;n&#39;,&#39;updated&#39;,&#39;mix&#39;,&#39;mu_x_n&#39;,&#39;mu_y_n&#39;,&#39;sd_x_n&#39;,&#39;sd_y_n&#39;,&#39;rho_n&#39;,&#39;beta_hat_reward&#39;]``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">precip_cube</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;adapt() requires precip_cube to compute depths/reward.&quot;</span><span class="p">)</span>
+
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">history</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_push</span><span class="p">(</span><span class="n">iter_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">updated</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">beta_hat_reward</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Append a minimal history snapshot.&quot;&quot;&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">history</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span>
+                <span class="nb">iter</span><span class="o">=</span><span class="n">iter_idx</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">),</span> <span class="n">updated</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">updated</span><span class="p">),</span>
+                <span class="n">mix</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mix</span><span class="p">),</span>
+                <span class="n">mu_x_n</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span><span class="p">),</span> <span class="n">mu_y_n</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span><span class="p">),</span>
+                <span class="n">sd_x_n</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span><span class="p">),</span> <span class="n">sd_y_n</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span><span class="p">),</span>
+                <span class="n">rho_n</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">rho_n</span><span class="p">),</span>
+                <span class="n">beta_hat_reward</span><span class="o">=</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">beta_hat_reward</span><span class="p">)</span> <span class="k">if</span> <span class="n">beta_hat_reward</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">))</span>
+
+        <span class="c1"># Initial snapshot (pre-iteration)</span>
+        <span class="n">_push</span><span class="p">(</span><span class="n">iter_idx</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">updated</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">beta_hat_reward</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
+        <span class="n">gamma</span> <span class="o">=</span> <span class="mf">1e-6</span>  <span class="c1"># small denominator smoothing</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_iterations</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="c1"># 1) Sample valid cells &amp; raw importance weights</span>
+            <span class="n">storms</span><span class="p">,</span> <span class="n">flat_idx</span><span class="p">,</span> <span class="n">w_raw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sample_valid_cells</span><span class="p">(</span><span class="n">samples_per_iter</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="p">)</span>
+
+            <span class="c1"># 2) Self-normalized weights</span>
+            <span class="n">sumW</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w_raw</span><span class="p">))</span>
+            <span class="n">w_tilde</span> <span class="o">=</span> <span class="p">(</span><span class="n">w_raw</span> <span class="o">/</span> <span class="n">sumW</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">sumW</span><span class="p">)</span> <span class="ow">and</span> <span class="n">sumW</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">full_like</span><span class="p">(</span><span class="n">w_raw</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">w_raw</span><span class="p">))</span>
+
+            <span class="c1"># 3) Coordinates &amp; watershed-average depths</span>
+            <span class="n">x_new</span><span class="p">,</span> <span class="n">y_new</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_flat_to_xy</span><span class="p">(</span><span class="n">flat_idx</span><span class="p">)</span>
+            <span class="n">depths</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_depths_for</span><span class="p">(</span><span class="n">storms</span><span class="p">,</span> <span class="n">flat_idx</span><span class="p">)</span>
+
+            <span class="c1"># 4) Responsibilities under current mixture</span>
+            <span class="n">qn_at</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qn_flat</span><span class="p">[</span><span class="n">flat_idx</span><span class="p">]</span>
+            <span class="n">qw_at</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qw_flat</span><span class="p">[</span><span class="n">flat_idx</span><span class="p">]</span>
+            <span class="n">denom</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">*</span> <span class="n">qn_at</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">mix</span><span class="p">)</span> <span class="o">*</span> <span class="n">qw_at</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_floor</span><span class="p">)</span>
+            <span class="n">r_n</span> <span class="o">=</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">*</span> <span class="n">qn_at</span><span class="p">)</span> <span class="o">/</span> <span class="n">denom</span>  <span class="c1"># responsibility of narrow</span>
+
+            <span class="c1"># 5) Reward with threshold</span>
+            <span class="n">reward</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">depths</span> <span class="o">&gt;=</span> <span class="n">depth_threshold</span><span class="p">,</span> <span class="n">depths</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+            <span class="c1"># 6) Reward-weighted EM update for mix</span>
+            <span class="n">num</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w_tilde</span> <span class="o">*</span> <span class="n">r_n</span> <span class="o">*</span> <span class="n">reward</span><span class="p">))</span>
+            <span class="n">den</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w_tilde</span> <span class="o">*</span> <span class="n">reward</span><span class="p">))</span> <span class="o">+</span> <span class="n">gamma</span>
+            <span class="n">beta_hat</span> <span class="o">=</span> <span class="n">num</span> <span class="o">/</span> <span class="n">den</span>  <span class="c1"># fraction of reward mass explained by narrow</span>
+            <span class="n">beta_new</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">lambda_mix</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">lambda_mix</span> <span class="o">*</span> <span class="n">beta_hat</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">mix</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">beta_new</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">beta_floor</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">beta_ceil</span><span class="p">))</span>
+
+            <span class="c1"># 7) Moment-match narrow parameters using RB, reward-weighted samples</span>
+            <span class="n">rb_w</span> <span class="o">=</span> <span class="n">w_tilde</span> <span class="o">*</span> <span class="n">r_n</span> <span class="o">*</span> <span class="n">reward</span>
+            <span class="n">s_rb</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span><span class="p">))</span>
+            <span class="n">updated</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="k">if</span> <span class="n">s_rb</span> <span class="o">&gt;</span> <span class="mf">0.0</span> <span class="ow">and</span> <span class="n">np</span><span class="o">.</span><span class="n">count_nonzero</span><span class="p">(</span><span class="n">reward</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">:</span>
+                <span class="n">rb_w</span> <span class="o">/=</span> <span class="n">s_rb</span>  <span class="c1"># normalize</span>
+
+                <span class="c1"># Means (x, y)</span>
+                <span class="n">mu_x_hat</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="n">x_new</span><span class="p">))</span>
+                <span class="n">mu_y_hat</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="n">y_new</span><span class="p">))</span>
+
+                <span class="c1"># Variances (x, y)</span>
+                <span class="n">var_x_hat</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="p">(</span><span class="n">x_new</span> <span class="o">-</span> <span class="n">mu_x_hat</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)</span>
+                <span class="n">var_y_hat</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="p">(</span><span class="n">y_new</span> <span class="o">-</span> <span class="n">mu_y_hat</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)</span>
+
+                <span class="c1"># Smooth means/variances</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">mu_x_hat</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">mu_y_hat</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span>
+                <span class="n">vx</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">var_x_hat</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+                <span class="n">vy</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">var_y_hat</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">vx</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)))</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">vy</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)))</span>
+
+                <span class="c1"># Correlation via latent normals (copula)</span>
+                <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-12</span>
+                <span class="n">tx_n</span><span class="p">,</span> <span class="n">ty_n</span> <span class="o">=</span> <span class="n">_truncnorm_objs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bounds</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">mu_x_n</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">mu_y_n</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">sd_x_n</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">sd_y_n</span><span class="p">)</span>
+                <span class="n">u_x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">tx_n</span><span class="o">.</span><span class="n">cdf</span><span class="p">(</span><span class="n">x_new</span><span class="p">),</span> <span class="n">eps</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span>
+                <span class="n">u_y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">ty_n</span><span class="o">.</span><span class="n">cdf</span><span class="p">(</span><span class="n">y_new</span><span class="p">),</span> <span class="n">eps</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">eps</span><span class="p">)</span>
+                <span class="n">z_x</span> <span class="o">=</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">u_x</span><span class="p">)</span>
+                <span class="n">z_y</span> <span class="o">=</span> <span class="n">norm</span><span class="o">.</span><span class="n">ppf</span><span class="p">(</span><span class="n">u_y</span><span class="p">)</span>
+
+                <span class="n">mzx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="n">z_x</span><span class="p">))</span>
+                <span class="n">mzy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="n">z_y</span><span class="p">))</span>
+                <span class="n">vzx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="p">(</span><span class="n">z_x</span> <span class="o">-</span> <span class="n">mzx</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)</span>
+                <span class="n">vzy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="p">(</span><span class="n">z_y</span> <span class="o">-</span> <span class="n">mzy</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">p</span><span class="o">.</span><span class="n">eps_var</span><span class="p">)</span>
+                <span class="n">cov_zy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">rb_w</span> <span class="o">*</span> <span class="p">(</span><span class="n">z_x</span> <span class="o">-</span> <span class="n">mzx</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">z_y</span> <span class="o">-</span> <span class="n">mzy</span><span class="p">)))</span>
+                <span class="n">corr_hat</span> <span class="o">=</span> <span class="n">cov_zy</span> <span class="o">/</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">vzx</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">vzy</span><span class="p">))</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">rho_n</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">alpha</span> <span class="o">*</span> <span class="n">corr_hat</span> <span class="o">+</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">p</span><span class="o">.</span><span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="o">.</span><span class="n">rho_n</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">))</span>
+
+                <span class="n">updated</span> <span class="o">=</span> <span class="mi">1</span>
+
+            <span class="c1"># 8) Rebuild proposal</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_q_base</span><span class="p">()</span>
+
+            <span class="c1"># 9) Log snapshot</span>
+            <span class="n">_push</span><span class="p">(</span><span class="n">iter_idx</span><span class="o">=</span><span class="n">t</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="n">samples_per_iter</span><span class="p">,</span> <span class="n">updated</span><span class="o">=</span><span class="n">updated</span><span class="p">,</span> <span class="n">beta_hat_reward</span><span class="o">=</span><span class="n">beta_hat</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">history</span><span class="p">)</span></div>
+
+
+
+    <span class="c1"># ------------------------------ final draw ------------------------------</span>
+<div class="viewcode-block" id="AdaptiveMixtureSampler.sample_final">
+<a class="viewcode-back" href="../../generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final.html#SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample_final</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">num_realizations</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+                     <span class="n">with_depths</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+                     <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Final draws from the adapted proposal.</span>
+<span class="sd">        Uses the same valid-cell logic and weights as in the adapt loop.</span>
+<span class="sd">        Distinct, stored seed per realization.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parent_ss</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">SeedSequence</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+        <span class="n">child_seeds</span> <span class="o">=</span> <span class="n">parent_ss</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">num_realizations</span><span class="p">)</span>
+
+        <span class="n">frames</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">r_idx</span><span class="p">,</span> <span class="n">child_ss</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">child_seeds</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">realization_seed</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">child_ss</span><span class="o">.</span><span class="n">generate_state</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint64</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">child_ss</span><span class="p">)</span>
+
+            <span class="n">storms</span><span class="p">,</span> <span class="n">flat_idx</span><span class="p">,</span> <span class="n">w_raw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sample_valid_cells</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">rng</span><span class="p">)</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w_raw</span><span class="p">))</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="p">(</span><span class="n">w_raw</span> <span class="o">/</span> <span class="n">s</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">full_like</span><span class="p">(</span><span class="n">w_raw</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">w_raw</span><span class="p">))</span>
+
+            <span class="n">newx</span><span class="p">,</span> <span class="n">newy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_flat_to_xy</span><span class="p">(</span><span class="n">flat_idx</span><span class="p">)</span>
+            <span class="n">kidx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">s2i</span><span class="p">[</span><span class="n">s</span><span class="p">]</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">storms</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+            <span class="n">ox</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_xy</span><span class="p">[</span><span class="n">kidx</span><span class="p">,</span> <span class="mi">0</span><span class="p">];</span> <span class="n">oy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">orig_xy</span><span class="p">[</span><span class="n">kidx</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+
+            <span class="n">depths</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_depths_for</span><span class="p">(</span><span class="n">storms</span><span class="p">,</span> <span class="n">flat_idx</span><span class="p">)</span> <span class="k">if</span> <span class="n">with_depths</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+            <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
+                <span class="s2">&quot;realization&quot;</span><span class="p">:</span> <span class="n">r_idx</span><span class="p">,</span>
+                <span class="s2">&quot;realization_seed&quot;</span><span class="p">:</span> <span class="n">realization_seed</span><span class="p">,</span>
+                <span class="s2">&quot;event_id&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">),</span>
+                <span class="s2">&quot;storm_path&quot;</span><span class="p">:</span> <span class="n">storms</span><span class="p">,</span>
+                <span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">ox</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="n">oy</span><span class="p">,</span>
+                <span class="s2">&quot;newx&quot;</span><span class="p">:</span> <span class="n">newx</span><span class="p">,</span> <span class="s2">&quot;newy&quot;</span><span class="p">:</span> <span class="n">newy</span><span class="p">,</span>
+                <span class="s2">&quot;delx&quot;</span><span class="p">:</span> <span class="n">newx</span> <span class="o">-</span> <span class="n">ox</span><span class="p">,</span> <span class="s2">&quot;dely&quot;</span><span class="p">:</span> <span class="n">newy</span> <span class="o">-</span> <span class="n">oy</span><span class="p">,</span>
+                <span class="s2">&quot;weight_raw&quot;</span><span class="p">:</span> <span class="n">w_raw</span><span class="p">,</span>
+                <span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="n">w</span><span class="p">,</span>
+                <span class="s2">&quot;precip_avg_mm&quot;</span><span class="p">:</span> <span class="n">depths</span><span class="p">,</span>
+            <span class="p">})</span>
+            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+
+        <span class="n">out</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">with_depths</span><span class="p">:</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_add_exc_prb_per_rep</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span></div>
+
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_add_exc_prb_per_rep</span><span class="p">(</span><span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">df</span><span class="p">[</span><span class="s2">&quot;exc_prb&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="k">for</span> <span class="n">realization</span><span class="p">,</span> <span class="n">grp</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">&quot;realization&quot;</span><span class="p">,</span> <span class="n">dropna</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">grp</span><span class="p">[</span><span class="s2">&quot;weight&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">w</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w</span><span class="p">)</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">w</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">full_like</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="mf">1.0</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">w</span><span class="p">))</span>
+            <span class="n">order</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">grp</span><span class="p">[</span><span class="s2">&quot;precip_avg_mm&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">idx_sorted</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="n">order</span><span class="p">]</span>
+            <span class="n">df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">idx_sorted</span><span class="p">,</span> <span class="s2">&quot;exc_prb&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">w</span><span class="p">[</span><span class="n">order</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">df</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

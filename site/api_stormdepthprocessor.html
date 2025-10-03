@@ -1,0 +1,183 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StormDepthProcessor Module &mdash; SSTImportanceSampling 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/design-tabs.js?v=f930bc37"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor" href="generated/SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor.html" />
+    <link rel="prev" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final" href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            SSTImportanceSampling
+              <img src="_static/sst_importance_sampling_logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quick_start.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="preprocessing.html">Preprocessing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="importancesampling.html">Importance Sampling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adaptivesampling.html">Adaptive Importance Sampling</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="api_preprocessor.html">Preprocessor Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_importancesampler.html">Importance Sampler Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_adaptiveimportancesampler.html">Adaptive Sampler Module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">StormDepthProcessor Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="generated/SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor.html">SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">SSTImportanceSampling</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">StormDepthProcessor Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api_stormdepthprocessor.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="stormdepthprocessor-module">
+<h1>StormDepthProcessor Module<a class="headerlink" href="#stormdepthprocessor-module" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">SSTImportanceSampling.stormdepthprocessor.</span></span><span class="sig-name descname"><span class="pre">StormDepthProcessor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_pad_edges</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/stormdepthprocessor.html#StormDepthProcessor"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Evaluate watershed-averaged storm depths for translated storm centers, then
+compute weighted exceedance probabilities per realization.</p>
+<section id="inputs">
+<h2>Inputs<a class="headerlink" href="#inputs" title="Link to this heading"></a></h2>
+<p>The constructor expects an object <code class="docutils literal notranslate"><span class="pre">data</span></code> (e.g., your Preprocessor output or
+a loader) providing:</p>
+<blockquote>
+<div><ul class="simple">
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">cumulative_precip</span></code>:</dt><dd><ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">xarray.DataArray</span></code> with dims <code class="docutils literal notranslate"><span class="pre">(&quot;storm_path&quot;,&quot;y&quot;,&quot;x&quot;)</span></code>, or</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">xarray.Dataset</span></code> containing variable <code class="docutils literal notranslate"><span class="pre">&quot;cumulative_precip&quot;</span></code>, or</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dict[str,</span> <span class="pre">xarray.DataArray(y,x)]</span></code> mapping storm id → 2-D field (mm).</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">watershed_gdf</span></code> : GeoDataFrame of the target watershed (same grid CRS).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">storm_centers</span></code> : DataFrame with original centers (columns <code class="docutils literal notranslate"><span class="pre">[&quot;storm_path&quot;,&quot;x&quot;,&quot;y&quot;]</span></code>).</p></li>
+</ul>
+</div></blockquote>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df_storms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_jobs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/SSTImportanceSampling/stormdepthprocessor.html#StormDepthProcessor.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a></dt>
+<dd><p>Compute watershed-mean depths and exceedance probabilities.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></span></p>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>df_storms</strong> (<em>pandas.DataFrame</em>) – Must include columns <code class="docutils literal notranslate"><span class="pre">[&quot;storm_path&quot;,&quot;newx&quot;,&quot;newy&quot;,&quot;weight&quot;,&quot;event_id&quot;]</span></code>.</p></li>
+<li><p><strong>n_jobs</strong> (<em>int</em><em>, </em><em>default -1</em>) – Number of parallel jobs (<code class="docutils literal notranslate"><span class="pre">-1</span></code> uses all cores).</p></li>
+</ul>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Event results with <code class="docutils literal notranslate"><span class="pre">precip_avg_mm</span></code> and <code class="docutils literal notranslate"><span class="pre">exc_prb</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>pandas.DataFrame</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor.html#SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor" title="SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">StormDepthProcessor</span></code></a></p></td>
+<td><p>Evaluate watershed-averaged storm depths for translated storm centers, then compute weighted exceedance probabilities per realization.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="generated/SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final.html" class="btn btn-neutral float-left" title="SSTImportanceSampling.adaptiveimportancesampler.AdaptiveMixtureSampler.sample_final" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="generated/SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor.html" class="btn btn-neutral float-right" title="SSTImportanceSampling.stormdepthprocessor.StormDepthProcessor" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright .</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
