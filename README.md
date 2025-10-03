@@ -12,7 +12,7 @@ Sphinx documentation is also included for detailed reference.
 
 ## **User Guide**
 
-A full user guide with examples and API documentation is available in the Sphinx docs: 
+A full user guide with examples and API documentation is available in the Sphinx docs: [View Documentation](https://github.com/fema-ffrd/Importance-Sampling-for-SST/blob/SJ/site/index.html)
 
 ### Prerequisites
 
