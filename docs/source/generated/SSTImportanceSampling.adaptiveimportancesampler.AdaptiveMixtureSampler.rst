@@ -16,7 +16,6 @@
       ~AdaptiveMixtureSampler.__init__
       ~AdaptiveMixtureSampler.adapt
       ~AdaptiveMixtureSampler.sample_final
-      ~AdaptiveMixtureSampler.weighted_frequency
    
    
 

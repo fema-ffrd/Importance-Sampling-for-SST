@@ -27,17 +27,18 @@ class StormDepthProcessor:
 
     def __init__(self, data, *, zero_pad_edges: bool = True):
         """
-        Normalize precipitation inputs, build grid transforms, and rasterize the watershed mask.
+        Compute watershed-averaged storm depths for translated storm centers and
+        derive weighted exceedance probabilities per realization.
 
         Parameters
         ----------
         data : object
-            Must expose:
-              • ``cumulative_precip`` (DataArray/Dataset/dict as above),
-              • ``watershed_gdf`` (GeoDataFrame),
-              • ``storm_centers`` (DataFrame with ``["storm_path","x","y"]``).
+            Must provide:
+            - ``cumulative_precip`` : xarray.DataArray, xarray.Dataset, or dict of 2D fields.
+            - ``watershed_gdf`` : GeoDataFrame of target watershed.
+            - ``storm_centers`` : DataFrame with columns ``["storm_path","x","y"]``.
         zero_pad_edges : bool, default True
-            If True, set rolled edges to 0; if False, set rolled edges to NaN.
+            If True, rolled edges are set to 0; if False, set to NaN.
         """
         self.zero_pad_edges = bool(zero_pad_edges)
 
@@ -93,12 +94,17 @@ class StormDepthProcessor:
     # unified getter for a storm's 2D precip field
     def _get_precip_by_path(self, storm_path: str) -> np.ndarray:
         """
-        Return the (y, x) cumulative-precipitation array for a given ``storm_path``.
+        Return the cumulative precipitation field for a given storm.
 
-        Raises
-        ------
-        KeyError
-            If the requested storm id is not present in the underlying data.
+        Parameters
+        ----------
+        storm_path : str
+            Storm identifier.
+
+        Returns
+        -------
+        numpy.ndarray
+            2D precipitation array.
         """
         if self._cube is not None:
             idx = self._path_to_idx.get(storm_path)
@@ -114,21 +120,19 @@ class StormDepthProcessor:
     # -------- public: single runner --------
     def run(self, df_storms: pd.DataFrame, n_jobs: int = -1) -> pd.DataFrame:
         """
-        Evaluate watershed-mean depths for translated centers and compute exceedance probabilities.
+        Compute watershed-mean depths and exceedance probabilities.
 
         Parameters
         ----------
         df_storms : pandas.DataFrame
-            Required columns: ``["storm_path","newx","newy","weight","event_id"]``.
-            Optional: ``["realization","realization_seed"]``.
+            Must include columns ``["storm_path","newx","newy","weight","event_id"]``.
         n_jobs : int, default -1
-            Parallelism for per-event processing (joblib). ``-1`` uses all cores.
+            Number of parallel jobs (``-1`` uses all cores).
 
         Returns
         -------
         pandas.DataFrame
-            Per-event results with ``precip_avg_mm`` and per-realization ``exc_prb`` added.
-            Empty DataFrame is returned if ``df_storms`` is empty.
+            Event results with ``precip_avg_mm`` and ``exc_prb``.
         """
         if df_storms.empty:
             return pd.DataFrame()
@@ -157,12 +161,17 @@ class StormDepthProcessor:
     # -------- internals --------
     def _process_single(self, row: pd.Series) -> Union[dict, None]:
         """
-        Translate one storm by (Δx, Δy), compute watershed-mean cumulative precipitation.
+        Process one translated storm and compute watershed-mean precipitation.
+
+        Parameters
+        ----------
+        row : pandas.Series
+            Event definition.
 
         Returns
         -------
-        dict | None
-            Per-event dictionary or ``None`` if the storm id was not found.
+        dict or None
+            Event results, or None if the storm was not found.
         """
         sp = str(row["storm_path"])
         if sp not in self.storm_centers.index:
@@ -211,10 +220,17 @@ class StormDepthProcessor:
 
     def _add_exc_prb(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Compute weighted exceedance probability within each realization.
+        Add weighted exceedance probabilities within each realization.
 
-        For each realization, sort rows by ``precip_avg_mm`` (descending) and take the
-        cumulative sum of ``weight``; assign that running sum to ``exc_prb`` for those rows.
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Results with ``precip_avg_mm`` and ``weight``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Results with an added ``exc_prb`` column.
         """
         df = df.copy()
         df["exc_prb"] = np.nan

@@ -94,57 +94,78 @@ def plot_two_return_period_summaries(summary1: pd.DataFrame,
 
 def plot_adaptive_evolution(history, watershed_gdf, domain_gdf, *, save=False, prefix="ais"):
     """
-    history: DataFrame from sampler.adapt(...)
-    watershed_gdf/domain_gdf: single-polygon GeoDataFrames in same CRS as sampler
+    Plot evolution of adaptive parameters.
+
+    Parameters
+    ----------
+    history : pd.DataFrame
+        Output from sampler.adapt(...). Must include columns:
+        ['iter','mu_x_n','mu_y_n','sd_x_n','sd_y_n','mix','rho_n'].
+        (Assumed to include an initial row with iter==0.)
+    watershed_gdf, domain_gdf : GeoDataFrame
+        Single-polygon GeoDataFrames in the same SHG CRS (meters).
+    save : bool, default False
+        If True, saves figures to disk with `prefix`.
+    prefix : str, default "ais"
+        Filename prefix when saving.
     """
     H = history.copy().sort_values("iter")
     it = H["iter"].to_numpy()
 
-    # ---------- Figure 1: MAP of narrow mean trajectory ----------
-    fig, ax = plt.subplots(1, 1, figsize=(5, 5), dpi=300)
-    domain_gdf.boundary.plot(ax=ax, linewidth=1.0, color="black")
-    watershed_gdf.boundary.plot(ax=ax, linewidth=1.5, color="blue")
+    # ---------- Figure 1: Map of narrow mean trajectory (meters) ----------
+    fig, ax = plt.subplots(1, 1, figsize=(5.2, 5.2), dpi=300)
+    domain_gdf.boundary.plot(ax=ax, linewidth=1.0)
+    watershed_gdf.boundary.plot(ax=ax, linewidth=1.5)
 
-    # Plot trajectory of narrow mean
-    ax.plot(H["mu_x_n"], H["mu_y_n"], "-o", markersize=3, linewidth=1.0, label="Narrow μ")
+    # Trajectory of narrow mean
+    ax.plot(H["mu_x_n"], H["mu_y_n"], "-o", markersize=3, linewidth=1.0)
 
-    # Annotate iteration numbers
-    for i, (x, y) in enumerate(zip(H["mu_x_n"], H["mu_y_n"]), start=1):
+    # Annotate iteration numbers starting at 0
+    for i, (x, y) in enumerate(zip(H["mu_x_n"], H["mu_y_n"])):
         ax.text(x, y, str(i), fontsize=7, ha="center", va="center",
-                bbox=dict(boxstyle="circle,pad=0.1", fc="white", ec="gray", lw=0.3, alpha=0.7))
+                bbox=dict(boxstyle="circle,pad=0.1", fc="white", ec="0.6", lw=0.3, alpha=0.8))
 
     ax.set_aspect("equal", adjustable="box")
-    ax.set_title("Adaptive narrow mean trajectory", pad=6)
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.legend(frameon=False, fontsize=8, loc="best")
+    ax.set_xlabel("Easting [m]")
+    ax.set_ylabel("Northing [m]")
+    # no title per your request
+    ax.grid(alpha=0.25, linewidth=0.6)
     fig.tight_layout()
     if save:
         fig.savefig(f"{prefix}_map_narrow.png", bbox_inches="tight")
 
-    # ---------- Figure 2: Parameters vs iteration ----------
-    fig2, axs = plt.subplots(2, 2, figsize=(6, 5.5), dpi=300)
+    # ---------- Figure 2: Parameters vs Iteration ----------
+    fig2, axs = plt.subplots(2, 2, figsize=(7.2, 6.2), dpi=300)
     axs = axs.ravel()
 
-    axs[0].plot(it, H["sd_x_n"]**2, "-o", ms=3)
-    axs[0].set_title("Var$_x$ (narrow)"); axs[0].set_xlabel("Iter"); axs[0].set_ylabel("sd$_x^2$")
-
-    axs[1].plot(it, H["sd_y_n"]**2, "-o", ms=3)
-    axs[1].set_title("Var$_y$ (narrow)"); axs[1].set_xlabel("Iter"); axs[1].set_ylabel("sd$_y^2$")
-
-    axs[2].plot(it, H["mix"], "-o", ms=3)
-    axs[2].set_title("Mixture weight"); axs[2].set_xlabel("Iter"); axs[2].set_ylabel("mix")
-
-    if "hit_rate_weighted" in H:
-        axs[3].plot(it, H["hit_rate_weighted"], "-o", ms=3)
-        axs[3].set_title("Weighted hit rate"); axs[3].set_xlabel("Iter"); axs[3].set_ylabel("p(hit)")
-    else:
-        axs[3].axis("off")
-
+    # Use discrete ticks at the observed iteration indices
     for ax in axs:
-        ax.grid(alpha=0.3, linewidth=0.6)
+        ax.set_xticks(it)
 
-    fig2.suptitle("Adaptive parameter evolution", y=0.995)
+    # Var_x (narrow) in m^2 (since sd is in meters)
+    axs[0].plot(it, (H["sd_x_n"] ** 2), "-o", ms=3)
+    axs[0].set_xlabel("Iteration")
+    axs[0].set_ylabel(r"Variance $\sigma_x^2$ [m$^2$]")
+    axs[0].grid(alpha=0.3, linewidth=0.6)
+
+    # Var_y (narrow) in m^2
+    axs[1].plot(it, (H["sd_y_n"] ** 2), "-o", ms=3)
+    axs[1].set_xlabel("Iteration")
+    axs[1].set_ylabel(r"Variance $\sigma_y^2$ [m$^2$]")
+    axs[1].grid(alpha=0.3, linewidth=0.6)
+
+    # Mixture weight β (unitless)
+    axs[2].plot(it, H["mix"], "-o", ms=3)
+    axs[2].set_xlabel("Iteration")
+    axs[2].set_ylabel(r"Mixture weight $\beta$ [–]")
+    axs[2].grid(alpha=0.3, linewidth=0.6)
+
+    # Copula correlation ρ (unitless)
+    axs[3].plot(it, H["rho_n"], "-o", ms=3)
+    axs[3].set_xlabel("Iteration")
+    axs[3].set_ylabel(r"Copula correlation $\rho$ [–]")
+    axs[3].grid(alpha=0.3, linewidth=0.6)
+
     fig2.tight_layout()
     if save:
         fig2.savefig(f"{prefix}_param_evolution.png", bbox_inches="tight")

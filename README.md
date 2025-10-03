@@ -1,17 +1,19 @@
-# Important Sampling for SST
+# Importance Sampling for SST
 ==============================
 
+<div align="center">
+    <img src="./images/logo.png" alt="Logo" width="250"/>
+</div>
+
+This repository provides tools for **Importance Sampling (IS)** and **Adaptive Importance Sampling (AIS)** applied to **Stochastic Storm Transposition (SST)**.  
+
+The codebase is organized into modules for sampling, preprocessing, depth processing, and additional utilities for analysis, along with example data and notebooks.  
+Sphinx documentation is also included for detailed reference.
 
 
-## **📢 REQUIRED READING**
+## **User Guide**
 
-This *README* provides crucial information for setting up and contributing to the Important-sampling project. It covers essential topics such as the dev-container setup, Python APIs, CLIs, authentication, running tests, linting, CI/CD, and formatting guidelines. If you haven't already, please read this document in it's entirety. It is necessary to ensure a smooth development process and maintain consistency across the project. If you do not understand something, reach out to someone who does!
-
-## How to contribute
-
-Review the following best practices for information on how to get your code merged! All code should follow the coding standards in the [Coding Standards](https://github.com/Denver-Automation-Analytics/software-design-and-best-practices/wiki/Coding-Standards). Please also review the [GitHub and Version Control](https://github.com/Denver-Automation-Analytics/software-design-and-best-practices/wiki/GitHub-and-Version-Control) wiki page. Please set up branch protection rules to enforce pull request reviews prior to merging into protected branches (especially if CI/CD is configured to run on some branches). If you require a *staging* branch, it may be helpful to set it as the default branch so pull request target that branch by default.
-
-> Be sure your code is formatted with `black` and all linting and pytest checks pass before requesting a review of your code (see *Formatting Linting and Testing* below)
+A full user guide with examples and API documentation is available in the Sphinx docs: 
 
 ### Prerequisites
 
@@ -38,15 +40,20 @@ Use the `env.yaml` file at the project root directory to keep pinned dependencie
 
 If your dependencies are more complex (i.e cannot be installed / managed with micromamba alone) you may need to update the `.devcontainer/Dockerfile` and apply similar modification to the production `Dockerfile`.
 
-## Project Organization
+### Key Components
 
-This repository contains the source code for the various tools available through the `important-sampling` package, cli, and Boathouse toolkit. This repository provides a Python API, CLI, and Boathouse interface to each tool.
+- **`SSTImportanceSampling/`**  
+  Core library implementing IS and AIS methods (uniform, truncated Gaussian, copula, mixture, adaptive mixture).  
 
-### Python APIs
+- **`production/`**  
+  Helper scripts and utilities for experiments, metrics, consequence analysis, and plotting.  
 
-The Python API is accessed through the `important-sampling` Python package. You will find the following in the `src/` folder related to the Python API:
+- **`example-input-data/`**  
+  Sample `config.json` and geospatial files showing expected input format and structure.  
 
-- `important-sampling` Python package
-  - This is the main package in this repository
-  - This package contains the Python APIs for each tool
+- **`notebooks/`**  
+  Jupyter notebooks used for experimentation.  
+
+- **`docs/`**  
+  Sphinx-based documentation with guides, API references, and user tutorials.  
 

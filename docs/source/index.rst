@@ -5,9 +5,9 @@ This user guide provides a high level overview for using Importance Sampling of 
 
 It includes:
 
-- A preprocessing module for reading storm catalog data, computing storm centers, and saving structured output
-- Flexible sampling modules for generating storm centers using importance sampling (including vanilla and adaptive sampling strategies)
-- A storm depth processor for evaluating average precipitation and return periods for transposed storms
+- A preprocessing module for reading storm catalog data, computing storm centers, valid tranpositions and saving structured output
+- Flexible sampling modules for generating storm centers and importance weights using importance sampling (including vanilla and adaptive sampling strategies)
+- A storm depth processor for evaluating average precipitation and exceedance prbabilities for transposed storms
 
 .. toctree::
    :maxdepth: 1
@@ -15,8 +15,8 @@ It includes:
 
    quick_start
    preprocessing
-   sampling
-   depths
+   importancesampling
+   adaptivesampling
 
 .. toctree::
    :maxdepth: 1

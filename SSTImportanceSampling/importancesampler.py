@@ -7,16 +7,21 @@ from scipy.stats import truncnorm, norm
 
 class ImportanceSampler:
     """
-    Discrete storm-center sampler over precomputed valid masks.
+    IS using multiple distributions over precomputed valid masks.
 
     Per realization:
-      1) Sample a storm J uniformly among storms with ≥1 valid cell.
-      2) Sample a valid cell P from that storm:
-         - Uniform: P ~ Uniform(V_J)
-         - Importance: P ~ Categorical ∝ q_base(P), restricted to V_J
-      3) Compute deltas and importance weights:
-         - Uniform: target == proposal → weights normalized to 1/N
-         - Importance: w_raw = Z_J / (|V_J| * q_base(P)), then self-normalize
+
+    1. **Sample a storm** uniformly among storms with at least one valid cell.
+    2. **Sample a valid cell** from that storm:
+    3. **Compute deltas and importance weights**, then self-normalize.
+    
+    Supported distributions
+    --------------------
+    - ``"uniform"`` : cells sampled uniformly over the valid mask.
+    - ``"truncated_gaussian"`` : cells sampled from a truncated Gaussian distribution restricted to the valid mask.
+    - ``"gaussian_copula"`` : cells sampled using a Gaussian copula, allowing correlation between axes.
+    - ``"mixture_trunc_gauss"`` : cells sampled from a weighted mixture of truncated Gaussians.
+
     """
 
     def __init__(
@@ -26,7 +31,7 @@ class ImportanceSampler:
         num_simulations: int,
         num_realizations: int = 1,
         eps_floor: float = 1e-300,     # floor to keep q_base strictly positive
-        use_alias: bool = False,       # placeholder flag; current impl uses numpy.choice
+        use_alias: bool = False,       
     ):
         self.distribution = distribution
         self.params = dict(params or {})
@@ -83,7 +88,7 @@ class ImportanceSampler:
 
         raise ValueError(f"Unsupported distribution: {d}")
 
-    # ------------- internal: build q_base grid -------------
+    # ------------- build q_base grid -------------
     @staticmethod
     def _truncnorm_objs(bounds: Tuple[float,float,float,float], mx, my, sx, sy):
         xmin, ymin, xmax, ymax = bounds
@@ -159,7 +164,7 @@ class ImportanceSampler:
 
         return xs, ys, q2d
 
-    # ------------- internal: prepare valid sets -------------
+    # ------------- prepare valid sets -------------
     @staticmethod
     def _flatten_indices(mask2d: np.ndarray) -> np.ndarray:
         return np.flatnonzero(mask2d.astype(bool).ravel())
@@ -223,12 +228,23 @@ class ImportanceSampler:
     def sample(self, data) -> pd.DataFrame:
         """
         Inputs expected on `data`:
-          - valid_mask_nc : xarray.DataArray (storm,y,x) with coords 'storm','x','y', values in {0,1}
-          - storm_centers : DataFrame with ['storm_path','x','y']
-          - watershed_stats : dict-like with ['x','y'] (centroid) used for default mu
+            - ``valid_mask_nc`` : xarray.DataArray (storm,y,x) with coords 'storm','x','y', values in {0,1}
+            - ``storm_centers`` : DataFrame with ['storm_path','x','y']
+            - ``watershed_stats`` : dict-like with ['x','y'] (centroid) used for default mu
 
-        Returns DataFrame columns:
-          ['realization','realization_seed','event_id','storm_path','x','y','newx','newy','delx','dely','weight_raw','weight']
+        Returns
+        -------
+        :class:`pandas.DataFrame` with the following columns:
+
+            - ``realization`` : realization index
+            - ``realization_seed`` : random seed used for reproducibility
+            - ``event_id`` : unique event identifier
+            - ``storm_path`` : identifier or path of the storm
+            - ``x, y`` : sampled storm-center coordinates
+            - ``newx, newy`` : translated storm-center coordinates
+            - ``delx, dely`` : translation deltas
+            - ``weight_raw`` : unnormalized importance weight
+            - ``weight`` : self-normalized importance weight
         """
         mask_da, centers_df, per_storm, xs, ys, qb_flat = self._prepare_catalog(data)
 
@@ -239,7 +255,6 @@ class ImportanceSampler:
         all_frames = []
 
         # Create independent seeds for each realization and keep them
-        # (64-bit integers generated from system entropy)
         seed_seq = np.random.SeedSequence()
         child_states = seed_seq.spawn(self.num_realizations)
         # Derive a single 64-bit seed value to store

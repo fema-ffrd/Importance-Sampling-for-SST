@@ -36,7 +36,8 @@ class AdaptParams:
 
     alpha: float = 0.25
     eps_var: float = 1e-6
-    K_temper: float = 1
+
+    depth_threshold: float = 0.0
         
     # Numeric stability
     eps_floor: float = 1e-300
@@ -81,18 +82,13 @@ def _qbase_mixture(xs, ys, bounds, p: AdaptParams, eps_floor) -> np.ndarray:
 # ------------------------ main adaptive class ------------------------
 class AdaptiveMixtureSampler:
     """
-    Adaptive mixture sampler on DISCRETE valid cells PER STORM using `valid_mask_nc`,
-    and the same weight formula as ImportanceSampler:
-        w_raw = Z_J / (|V_J| * q_base(P))
+    Adaptive mixture sampler on valid cells,
 
     Required on `data`:
       - valid_mask_nc : xr.DataArray ('storm','y','x'), values in {0,1}
       - storm_centers : pd.DataFrame with ['storm_path','x','y']
       - watershed_stats : dict-like or Series with ['x','y'] (for default μ)
-
-    Optional:
-      - cumulative_precip (or `precip_cube` arg): xr.DataArray ('storm','y','x') or dict[str->xr.DataArray(y,x)]
-        Used for adaptation (hits/depths). Will be auto-aligned to the mask grid.
+      - cumulative_precip : xr.DataArray ('storm','y','x') or dict[str->xr.DataArray(y,x)]
     """
 
     def __init__(self,
@@ -105,7 +101,7 @@ class AdaptiveMixtureSampler:
         self.params = params
         self.rng = np.random.default_rng(seed)
 
-        # ---- validate inputs like ImportanceSampler ----
+        # ---- validate inputs ----
         if not hasattr(data, "valid_mask_nc"):
             raise ValueError("`data` must have attribute `valid_mask_nc` (xarray DataArray).")
         if not hasattr(data, "storm_centers"):
@@ -115,13 +111,13 @@ class AdaptiveMixtureSampler:
         if not {"storm","y","x"} <= set(self.mask_da.dims):
             raise ValueError("valid_mask_nc must have dims ('storm','y','x').")
 
-        # Grid and bounds from MASK (exactly like ImportanceSampler)
+        # Grid and bounds from mask
         self.xs = self.mask_da["x"].values
         self.ys = self.mask_da["y"].values
         self.colsN = len(self.xs)
         self.rowsN = len(self.ys)
         self.bounds = (float(self.xs[0]), float(self.ys[0]), float(self.xs[-1]), float(self.ys[-1]))
-        # --- grid spacing & affine (centers -> upper-left origin), like StormDepthProcessor
+        # --- grid spacing & affine (centers -> upper-left origin)
         self.dx = float(np.mean(np.diff(self.xs)))
         self.dy = float(np.mean(np.diff(self.ys)))
         self.transform = (
@@ -129,7 +125,7 @@ class AdaptiveMixtureSampler:
             * Affine.scale(self.dx, self.dy)
         )
 
-        # --- watershed mask (required to match StormDepthProcessor)
+        # --- watershed mask
         if not hasattr(data, "watershed_gdf"):
             raise ValueError("`data` must have attribute `watershed_gdf` to compute watershed-mean depths.")
         ws_gdf: gpd.GeoDataFrame = data.watershed_gdf
@@ -140,9 +136,9 @@ class AdaptiveMixtureSampler:
             invert=True,
         )
 
-        # configurable edge handling to mimic StormDepthProcessor
+        # configurable edge handling
         self.zero_pad_edges = True  # or make this a __init__ kwarg if you want to toggle
-        # Centers table filtered to mask storms (exactly like ImportanceSampler)
+        # Centers table filtered to mask storms
         centers_df: pd.DataFrame = data.storm_centers.copy()
         need_cols = {"storm_path","x","y"}
         if not need_cols <= set(centers_df.columns):
@@ -157,7 +153,7 @@ class AdaptiveMixtureSampler:
         self.s2i = {s: i for i, s in enumerate(self.storms)}
         self.orig_xy = centers_df.set_index("storm_path").loc[self.storms, ["x","y"]].to_numpy(float)
 
-        # Default μ from watershed centroid (same as ImportanceSampler)
+        # Default μ from watershed centroid
         ws_stats = getattr(data, "watershed_stats", None)
         if ws_stats is None:
             ws_stats = {}
@@ -177,7 +173,7 @@ class AdaptiveMixtureSampler:
         if not np.isfinite(self.params.mu_x_w) or not np.isfinite(self.params.mu_y_w):
             raise ValueError("Wide means not set and watershed_stats[x,y] unavailable.")
 
-        # ---- per-storm valid sets from MASK (IDENTICAL logic to ImportanceSampler) ----
+        # ---- per-storm valid sets from mask ----
         self.per_storm: Dict[str, Dict[str, np.ndarray | float | int]] = {}
         qb_dummy = np.ones((self.rowsN, self.colsN))  # placeholder; real qb in _rebuild_q_base
         flat_all = qb_dummy.ravel(order="C")
@@ -190,10 +186,9 @@ class AdaptiveMixtureSampler:
         if not self.per_storm:
             raise ValueError("All storms have empty valid sets; cannot sample.")
 
-        # ---- build q_base on MASK grid (just like ImportanceSampler) ----
+        # ---- build q_base on mask grid ----
         self._rebuild_q_base()
 
-        # ---- optional precip, auto-aligned to MASK grid for adaptation (hits) ----
         self.precip_cube = None
         raw_precip = precip_cube if precip_cube is not None else getattr(data, "cumulative_precip", None)
         if raw_precip is not None:
@@ -319,14 +314,13 @@ class AdaptiveMixtureSampler:
         jj = flat_idx % self.colsN
         return self.xs[jj], self.ys[ii]
 
-    # ------------------------- depths / hits (optional) ---------------------
+    # ------------------------- depths / hits ---------------------
     def _depths_for(self, chosen_storms: np.ndarray, chosen_flat: np.ndarray) -> np.ndarray:
         """
         Compute watershed-mean cumulative precip exactly like StormDepthProcessor:
-        - integer cell shifts from physical offsets using dx,dy and round(...)
+        - integer cell shifts from physical offsets using dx,dy
         - zero-pad rolled edges
         - mean over watershed mask pixels
-        - treat NaNs as 0.0 when zero_pad_edges is True (same as processor)
         """
         if self.precip_cube is None:
             return np.zeros(chosen_storms.size, dtype=float)
@@ -345,7 +339,7 @@ class AdaptiveMixtureSampler:
 
         for n, s in enumerate(chosen_storms):
             k = self.s2i[str(s)]
-            # integer cell offsets computed from physical deltas (round(...) like processor)
+            # integer cell offsets computed from physical deltas
             dx_cells = int(round((float(newx[n]) - float(x0[k])) / self.dx))
             dy_cells = int(round((float(newy[n]) - float(y0[k])) / self.dy))
 
@@ -382,26 +376,34 @@ class AdaptiveMixtureSampler:
         self,
         num_iterations: int,
         samples_per_iter: int,
+        depth_threshold: float = 0.0,
     ) -> pd.DataFrame:
         """
+        Adaptive sampling loop with reward-weighted EM (optional depth threshold).
+
         Each iteration:
-        1) Draw `samples_per_iter` valid cells across storms.
-        2) Compute self-normalized importance weights w̃ = w / sum(w).
-        3) Compute watershed-average depths at shifted storm centers.
-        4) Compute responsibilities r_n under q = mix*q_n + (1-mix)*q_w.
-        5) Define reward: R_i = depth_i + K_temper  (no thresholding).
-        6) Update mixture weight `mix` via reward-weighted EM:
-                beta_hat = (Σ w̃_i r_n,i R_i) / (Σ w̃_i R_i + γ)
-                mix ← clip( (1-λ)*mix + λ*beta_hat, [beta_floor, beta_ceil] )
-        7) Moment-match narrow (μ_x, μ_y, σ_x, σ_y, ρ) using RB weights ∝ w̃*r_n*R.
-        8) Rebuild proposal for the next iteration.
-        9) Append a minimal history snapshot.
+            1. Draw ``samples_per_iter`` valid cells across storms.  
+            2. Compute self-normalized importance weights.  
+            3. Evaluate watershed-average depths at shifted storm centers.  
+            4. Update mixture responsibilities and mixture weight using rewards.  
+            5. Moment-match narrow distribution parameters.  
+            6. Rebuild proposal for the next iteration.  
+            7. Append a minimal history snapshot.  
+
+        Parameters
+        ----------
+        num_iterations : int
+            Number of adaptation iterations to run.
+        samples_per_iter : int
+            Number of samples drawn per iteration.
+        depth_threshold : float, default 0.0
+            Samples with depth below this threshold contribute zero reward.
 
         Returns
         -------
-        pd.DataFrame
-            Minimal history with columns:
-            ['iter','n','updated','mix','mu_x_n','mu_y_n','sd_x_n','sd_y_n','rho_n','beta_hat_reward']
+        pandas.DataFrame
+            History with columns:  
+            ``['iter','n','updated','mix','mu_x_n','mu_y_n','sd_x_n','sd_y_n','rho_n','beta_hat_reward']``.
         """
         if self.precip_cube is None:
             raise ValueError("adapt() requires precip_cube to compute depths/reward.")
@@ -443,8 +445,8 @@ class AdaptiveMixtureSampler:
             denom = np.maximum(p.mix * qn_at + (1.0 - p.mix) * qw_at, p.eps_floor)
             r_n = (p.mix * qn_at) / denom  # responsibility of narrow
 
-            # 5) Reward from depths (no threshold): R = depth + K_temper
-            reward = depths + p.K_temper
+            # 5) Reward with threshold
+            reward = np.where(depths >= depth_threshold, depths, 0.0)
 
             # 6) Reward-weighted EM update for mix
             num = float(np.sum(w_tilde * r_n * reward))
@@ -498,7 +500,7 @@ class AdaptiveMixtureSampler:
             # 8) Rebuild proposal
             self._rebuild_q_base()
 
-            # 9) Log snapshot (store beta_hat we used)
+            # 9) Log snapshot
             _push(iter_idx=t, n=samples_per_iter, updated=updated, beta_hat_reward=beta_hat)
 
         return pd.DataFrame(self.history)
@@ -510,7 +512,7 @@ class AdaptiveMixtureSampler:
                      seed: Optional[int] = None) -> pd.DataFrame:
         """
         Final draws from the adapted proposal.
-        Uses the SAME valid-cell logic and weights as in the adapt loop.
+        Uses the same valid-cell logic and weights as in the adapt loop.
         Distinct, stored seed per realization.
         """
         parent_ss = np.random.SeedSequence(seed)

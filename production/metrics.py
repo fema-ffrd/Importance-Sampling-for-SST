@@ -69,7 +69,6 @@ def metrics(
     # Difference at max shared RP
     rp_max_shared = out["rp_max_used"]
     at_max = merged[merged[rp_col] == rp_max_shared]
-    # If duplicates at the same RP exist, take the last row (they should be identical)
     at_max = at_max.iloc[[-1]]
     for label, col in stats_map.items():
         sim_v = float(at_max[f"{col}_sim"].iloc[0]) if np.isfinite(at_max[f"{col}_sim"].iloc[0]) else np.nan

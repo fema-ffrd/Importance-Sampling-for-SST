@@ -1,17 +1,17 @@
 {
     "watershed": {
-        "id": "trinity",
-        "geometry_file": "/workspaces/Importance-Sampling-for-SST/example-input-data/trinity.geojson",
-        "description": "Trinity watershed for use in development of storm catalog"
+        "id": "indian-creek",
+        "geometry_file": "/workspaces/Importance-Sampling-for-SST/example-input-data/indian-creek.geojson",
+        "description": "Indian Creek watershed for use in development of storm catalog"
     },
     "transposition_region": {
-        "id": "trinity-transpo-area-v01",
-        "geometry_file": "/workspaces/Importance-Sampling-for-SST/example-input-data/trinity-transpo-area-v01.geojson",
+        "id": "indian-creek-transpo-area-v01",
+        "geometry_file": "/workspaces/Importance-Sampling-for-SST/example-input-data/indian-creek-transpo-area-v01.geojson",
         "description": "Original Transposition Domain developed by the hydromet team for use in development of storm catalog"
     },
     "catalog": {
-        "id": "trinity-catalog",
+        "id": "indian-creek-catalog",
         "catalog_folder": "/workspaces/Importance-Sampling-for-SST/example-input-data/dss",
-        "description": "Trinity Storm Catalog, AORC 4km, hourly, 10 storms per year"
+        "description": "Storm Catalog, AORC 4km, hourly, 10 storms per year"
     }
 }

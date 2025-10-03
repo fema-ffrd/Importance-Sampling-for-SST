@@ -6,13 +6,13 @@ Call :meth:`Preprocessor.run` after initialization.
 You can reuse a processed dataset using :meth:`Preprocessor.load`.
 
 This module handles:
-- Reading and projecting watershed/domain geometries
-- Computing basic spatial stats (bounds, centroid, ranges) for watershed & domain
-- Reading DSS storm files and computing cumulative precipitation
-- Computing storm centers (max cumulative precip cell)
-- Building a single master grid definition (meta)
-- Computing per-storm VALID storm-center masks using the (internal) valid-centroid region
-- Saving preprocessed outputs (NetCDF + Parquet + JSON meta)
+    - Reading and projecting watershed/domain geometries
+    - Computing basic spatial stats (bounds, centroid, ranges) for watershed & domain
+    - Reading DSS storm files and computing cumulative precipitation
+    - Computing storm centers (max cumulative precip cell)
+    - Building a single master grid definition (meta)
+    - Computing per-storm VALID storm-center masks
+    - Saving preprocessed outputs (NetCDF + Parquet + JSON meta)
 """
 
 import os
@@ -105,9 +105,6 @@ class Preprocessor:
         - storm_centers.pq              (Parquet: storm_path, x, y, pmax_mm)
         - grid_meta.json                (JSON: CRS/shape/affine/cell_size/x0/y0)
         - valid_mask.nc                 (NetCDF DataArray: valid_mask[storm,y,x] as uint8)
-
-    Internal only (not written to config or disk):
-        - valid_centroid_region_gdf     (GeoDataFrame with the feasible centroid polygon)
     """
 
     # --------------- init ---------------
@@ -159,15 +156,15 @@ class Preprocessor:
           2) Stats → JSON
           3) Read DSS storms → cumulative precip + storm center per storm
           4) Build master grid meta from domain bbox aligned to DSS grid
-          5) (Internal) Compute the valid centroid region polygon
-          6) Build per-storm valid masks using the valid centroid region (fast reflect+shift)
-          7) Save outputs & update config (without valid centroid region)
+          5) Compute the valid centroid region polygon
+          6) Build per-storm valid masks using the valid centroid region
+          7) Save outputs & update config
         """
         self._process_geometries()
         self._compute_and_save_spatial_stats()
         self._process_dss_files()
         grid_meta = self._build_master_grid_meta_from_dss_and_domain()
-        self._compute_valid_centroid_region_internal()          # internal only
+        self._compute_valid_centroid_region_internal()          
         self._compute_and_save_valid_masks_via_vcr(grid_meta)   # writes valid_mask.nc
         self._save_outputs()
         self._update_config(grid_meta)
@@ -299,7 +296,7 @@ class Preprocessor:
             json.dump(meta, f, indent=2)
         return meta
 
-    # ---- internal: valid centroid region (VCR) ----
+    # ---- internal: valid centroid region ----
     @staticmethod
     def _valid_centroid_region(domain_gdf: gpd.GeoDataFrame,
                                watershed_gdf: gpd.GeoDataFrame,
@@ -358,7 +355,7 @@ class Preprocessor:
             simplify_tol=self.vcr_simplify_tol
         )
 
-    # ---- per-storm valid masks via VCR (fast reflect+shift) ----
+    # ---- per-storm valid masks ----
     def _compute_and_save_valid_masks_via_vcr(self, grid_meta: Dict):
         """
         Build per-storm VALID masks using the valid-centroid region (VCR).
@@ -387,7 +384,7 @@ class Preprocessor:
         D = self.domain_gdf.geometry.unary_union
         in_domain = _rasterize_bool(D, (rows, cols), transform)  # (rows, cols) bool
 
-        # --- rasterize VCR ---
+        # --- rasterize ---
         VCR_geom = self.valid_centroid_region_gdf.geometry.unary_union
         if VCR_geom.is_empty:
             # nothing is feasible: all-zero masks
@@ -515,9 +512,9 @@ class Preprocessor:
           - projected watershed/domain (GPKG)
           - cumulative_precip (NetCDF)
           - storm_centers (Parquet)
-          - spatial_stats.json (optional)
-          - master_grid_meta.json (path only)
-          - valid_mask.nc (path only or lazily opened if desired)
+          - spatial_stats.json
+          - master_grid_meta.json 
+          - valid_mask.nc
         """
         config_path = Path(config_path)
         if config_path.is_dir():
