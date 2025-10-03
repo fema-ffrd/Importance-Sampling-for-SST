@@ -44,9 +44,6 @@ If your dependencies are more complex (i.e cannot be installed / managed with mi
 - **`SSTImportanceSampling/`**  
   Core library implementing IS and AIS methods (uniform, truncated Gaussian, copula, mixture, adaptive mixture).  
 
-- **`production/`**  
-  Helper scripts and utilities for experiments, metrics, consequence analysis, and plotting.  
-
 - **`example-input-data/`**  
   Sample `config.json` and geospatial files showing expected input format and structure.  
 
@@ -55,4 +52,3 @@ If your dependencies are more complex (i.e cannot be installed / managed with mi
 
 - **`docs/`**  
   Sphinx-based documentation with guides, API references, and user tutorials.  
-
