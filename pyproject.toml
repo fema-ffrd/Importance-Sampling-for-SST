@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SSTImportanceSampling"
+version = "0.1.0"
+description = "Storm Transposition Importance Sampling Library"
+authors = [{ name="Your Name" }]
+dependencies = [
+    "geopandas",
+    "xarray",
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "pystac",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
