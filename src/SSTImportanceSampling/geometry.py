@@ -1,6 +1,10 @@
-# geometry.py
+"""Geometry processing for SST Importance Sampling."""
+
+from pathlib import Path
+from typing import Tuple
 
 import geopandas as gpd
+import pandas as pd
 from pyproj import CRS
 
 SHG_WKT = (
@@ -19,24 +23,115 @@ SHG_WKT = (
     'UNIT["Meter",1.0]]'
 )
 
+SHG_CRS = CRS.from_wkt(SHG_WKT)
 
-def load_and_project_to_shg(watershed_path, domain_path):
-    shg = CRS.from_wkt(SHG_WKT)
+
+def load_and_project_to_shg(
+    watershed_path: str | Path,
+    domain_path: str | Path,
+) -> Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """
+    Load and project watershed and domain geometries to SHG CRS.
+
+    Parameters
+    ----------
+    watershed_path : str | Path
+        Path to watershed GeoJSON file.
+    domain_path : str | Path
+        Path to domain/transposition region GeoJSON file.
+
+    Returns
+    -------
+    Tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]
+        Projected watershed and domain GeoDataFrames in SHG CRS.
+
+    Raises
+    ------
+    FileNotFoundError
+        If input files do not exist.
+    ValueError
+        If geometries do not have CRS defined.
+
+    Examples
+    --------
+    >>> watershed, domain = load_and_project_to_shg(
+    ...     "watershed.geojson", "domain.geojson"
+    ... )
+    """
+    watershed_path = Path(watershed_path)
+    domain_path = Path(domain_path)
+
+    if not watershed_path.exists():
+        raise FileNotFoundError(f"Watershed file not found: {watershed_path}")
+
+    if not domain_path.exists():
+        raise FileNotFoundError(f"Domain file not found: {domain_path}")
 
     watershed = gpd.read_file(watershed_path)
     domain = gpd.read_file(domain_path)
 
-    if watershed.crs is None or domain.crs is None:
-        raise ValueError("GeoJSON must have CRS defined.")
+    if watershed.crs is None:
+        raise ValueError("Watershed GeoJSON must have CRS defined")
 
-    watershed = watershed.to_crs(shg)
-    domain = domain.to_crs(shg)
+    if domain.crs is None:
+        raise ValueError("Domain GeoJSON must have CRS defined")
+
+    watershed = watershed.to_crs(SHG_CRS)
+    domain = domain.to_crs(SHG_CRS)
 
     return watershed, domain
 
 
-def compute_centroids(watershed, domain):
-    w_geom = watershed.geometry.unary_union
-    d_geom = domain.geometry.unary_union
+def compute_spatial_stats(gdf: gpd.GeoDataFrame, name: str = "geometry") -> pd.Series:
+    """
+    Compute comprehensive spatial statistics for a geometry.
 
-    return w_geom.centroid, d_geom.centroid
+    Computes bounding box bounds, centroid, spatial extents, and area.
+
+    Parameters
+    ----------
+    gdf : gpd.GeoDataFrame
+        GeoDataFrame with geometry column.
+    name : str, optional
+        Name identifier for this geometry, by default "geometry".
+
+    Returns
+    -------
+    pd.Series
+        Series containing spatial statistics with keys:
+        - name: Geometry identifier
+        - minx, miny: Southwest corner of bounding box
+        - maxx, maxy: Northeast corner of bounding box
+        - centroid_x, centroid_y: Centroid coordinates
+        - range_x: East-West extent (maxx - minx)
+        - range_y: North-South extent (maxy - miny)
+        - area: Total area in square units
+        - crs: CRS of the geometry
+
+    Examples
+    --------
+    >>> stats = compute_spatial_stats(watershed_gdf, "watershed")
+    >>> print(stats["centroid_x"], stats["centroid_y"])
+    """
+    geom_union = gdf.geometry.unary_union
+    minx, miny, maxx, maxy = gdf.total_bounds
+    centroid = geom_union.centroid
+    area = geom_union.area
+
+    stats = pd.Series(
+        {
+            "name": name,
+            "minx": float(minx),
+            "miny": float(miny),
+            "maxx": float(maxx),
+            "maxy": float(maxy),
+            "centroid_x": float(centroid.x),
+            "centroid_y": float(centroid.y),
+            "range_x": float(maxx - minx),
+            "range_y": float(maxy - miny),
+            "area": float(area),
+            "crs": str(gdf.crs) if gdf.crs else "Unknown",
+        }
+    )
+
+    return stats

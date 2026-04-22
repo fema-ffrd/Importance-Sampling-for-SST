@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include src/SSTImportanceSampling *.py
+recursive-include src/SSTImportanceSampling py.typed
+recursive-include src/SSTImportanceSampling schema.json
+recursive-include config *.yaml
+recursive-include examples *.py *.yaml
