@@ -1,5 +1,6 @@
 """SST Importance Sampling preprocessor module."""
 
+import gc
 import json
 import logging
 from datetime import datetime
@@ -10,7 +11,7 @@ import xarray as xr
 import yaml
 
 from .config import ConfigValidator
-from .dss_reader import read_dss_cumulative
+from .dss_processor import process_dss_batch
 from .fishnet import create_uniform_fishnet_csv
 from .geometry import (
     compute_spatial_stats,
@@ -129,13 +130,13 @@ class Preprocessor:
         Path | None
             Path to preprocessing output directory, or None if dry_run=True.
         """
-        logger.info("="*70)
+        logger.info("=" * 70)
         logger.info(" SST Importance Sampling - Preprocessor")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         if dry_run:
             logger.info("🏜️  DRY RUN MODE - Configuration validated, no data processed")
-            logger.info("="*70)
+            logger.info("=" * 70)
             return None
 
         run_folder = self._create_run_folder()
@@ -145,7 +146,7 @@ class Preprocessor:
         self._save_run_metadata(run_folder, preprocess_folder)
 
         logger.info("✅ Preprocessing complete: %s", preprocess_folder)
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         return preprocess_folder
 
@@ -168,12 +169,12 @@ class Preprocessor:
         is_valid, errors = validator.validate(self.config)
 
         if not is_valid:
-            logger.error("\n" + "="*70)
+            logger.error("\n" + "=" * 70)
             logger.error("❌ CONFIGURATION VALIDATION FAILED")
-            logger.error("="*70)
+            logger.error("=" * 70)
             for error in errors:
                 logger.error("  • %s", error)
-            logger.error("="*70)
+            logger.error("=" * 70)
             raise ValueError(f"Invalid configuration: {len(errors)} error(s)")
 
         logger.info("✅ Configuration validation passed")
@@ -239,9 +240,9 @@ class Preprocessor:
         preprocess_folder = run_folder / "preprocessing"
         preprocess_folder.mkdir()
 
-        logger.info("\n" + "-"*70)
+        logger.info("\n" + "-" * 70)
         logger.info("PREPROCESSING PIPELINE")
-        logger.info("-"*70)
+        logger.info("-" * 70)
 
         self._process_geometries(preprocess_folder)
         self._process_fishnet(preprocess_folder)
@@ -308,31 +309,31 @@ class Preprocessor:
         # Log spatial information
         logger.info(
             "  • Watershed centroid: (%.2f, %.2f)",
-            self.watershed_stats['centroid_x'],
-            self.watershed_stats['centroid_y'],
+            self.watershed_stats["centroid_x"],
+            self.watershed_stats["centroid_y"],
         )
         logger.info(
             "  • Domain centroid: (%.2f, %.2f)",
-            self.domain_stats['centroid_x'],
-            self.domain_stats['centroid_y'],
+            self.domain_stats["centroid_x"],
+            self.domain_stats["centroid_y"],
         )
         logger.info(
             "  • Watershed extent: %.2f × %.2f",
-            self.watershed_stats['range_x'],
-            self.watershed_stats['range_y'],
+            self.watershed_stats["range_x"],
+            self.watershed_stats["range_y"],
         )
         logger.info(
             "  • Domain extent: %.2f × %.2f",
-            self.domain_stats['range_x'],
-            self.domain_stats['range_y'],
+            self.domain_stats["range_x"],
+            self.domain_stats["range_y"],
         )
         logger.info(
             "  • Watershed area: %.2e sq units",
-            self.watershed_stats['area'],
+            self.watershed_stats["area"],
         )
         logger.info(
             "  • Domain area: %.2e sq units",
-            self.domain_stats['area'],
+            self.domain_stats["area"],
         )
 
     def _process_fishnet(self, output_dir: Path) -> None:
@@ -372,15 +373,29 @@ class Preprocessor:
 
     def _process_dss_files(self, output_dir: Path) -> None:
         """
-        Load, process, and save DSS data.
+        Load, process, and save DSS data using optimized parallel processing.
 
         Extracts cumulative precipitation grids and computes storm centers
-        from maximum precipitation cells.
+        from maximum precipitation cells using parallel file reading
+        for maximum performance.
+
+        Key optimizations:
+        - Parallel DSS file reading (ProcessPoolExecutor)
+        - Process-local maximum computation (cache locality)
+        - Streaming netCDF writes
+        - Optimized xarray chunking
 
         Parameters
         ----------
         output_dir : Path
             Output directory for DSS data files.
+
+        Raises
+        ------
+        ValueError
+            If no valid DSS files found.
+        Exception
+            If DSS processing fails.
         """
         logger.info("\n💧 Processing DSS files...")
 
@@ -396,75 +411,31 @@ class Preprocessor:
         )
         grid_kw = self.config["preprocess"].get("dss_grid_keyword", "SHG")
 
-        cumulative_data = []
-        storm_centers = []
-
-        logger.info("  • Found %d DSS files", len(dss_files))
-
-        from tqdm import tqdm
-
-        for dss_file in tqdm(
-            dss_files, desc="  Processing", unit=" file", leave=True
-        ):
-            event_id = Path(dss_file).stem
-            logger.debug("Processing: %s", event_id)
-
-            with suppress_stdout_stderr():
-                data_array = read_dss_cumulative(
-                    dss_file,
-                    variable_keyword=var_kw,
-                    grid_keyword=grid_kw,
-                )
-
-            cumulative_data.append(data_array)
-
-            idx_max = data_array.values.argmax()
-            row, col = divmod(idx_max, data_array.shape[1])
-
-            pmax = float(data_array.values[row, col])
-
-            storm_centers.append(
-                {
-                    "event_id": event_id,
-                    "x": float(data_array.x.values[col]),
-                    "y": float(data_array.y.values[row]),
-                    "pmax_mm": pmax,
-                }
-            )
-
-        # Stack and save cumulative precipitation
-        stacked = xr.concat(
-            cumulative_data,
-            dim=xr.DataArray(
-                [Path(f).stem for f in dss_files],
-                dims="event_id",
-                name="event_id",
-            ),
-        )
-        stacked.name = "cumulative_precip"
+        # Get optimized DSS processing parameters
+        max_workers = self.config["preprocess"].get("dss_max_workers", 8)
 
         nc_config = self.config["preprocess"].get("netcdf_compression", {})
-        encoding = {
-            "cumulative_precip": {
-                "zlib": nc_config.get("zlib", True),
-                "complevel": nc_config.get("complevel", 4),
-            }
-        }
-        stacked.to_netcdf(output_dir / "cumulative_precip.nc", encoding=encoding)
-        logger.info("  ✓ Saved cumulative_precip.nc")
 
-        # Save storm centers
-        centers_path = (
-            output_dir
-            / f"storm_centers.{get_table_extension(self.export_format)}"
-        )
-        save_dataframe(pd.DataFrame(storm_centers), centers_path, self.export_format)
-        logger.info(
-            "  ✓ Saved storm_centers.%s",
-            get_table_extension(self.export_format),
-        )
+        logger.info(f"  • Found {len(dss_files)} DSS files")
+        logger.info(f"  • Using {max_workers} parallel workers")
 
-        logger.info("  • Processed %d storms", len(storm_centers))
+        try:
+            # Use optimized parallel processing
+            storm_centers, nc_path, centers_path = process_dss_batch(
+                dss_files=dss_files,
+                output_dir=output_dir,
+                export_format=self.export_format,
+                max_workers=max_workers,
+                compression_config=nc_config,
+                var_kw=var_kw,
+                grid_kw=grid_kw,
+            )
+
+            logger.info(f"  • Processed {len(storm_centers)} storms")
+
+        except Exception as e:
+            logger.error(f"Error processing DSS files: {e}")
+            raise
 
     def _process_validity_check(self, output_dir: Path) -> None:
         """
@@ -496,7 +467,7 @@ class Preprocessor:
             output_path=str(output_dir / "valid_placements"),
             export_format=validity_config.get("export_format", self.export_format),
             max_workers=validity_config.get("max_workers", 4),
-            fishnet_chunk_size=validity_config.get("fishnet_chunk_size", 10000),
+            fishnet_chunk_size=validity_config.get("fishnet_chunk_size", 50000),
         )
 
         logger.info(
@@ -505,7 +476,6 @@ class Preprocessor:
         )
 
         self._create_plot(output_dir)
-
 
     def _print_preprocessing_summary(self, preprocess_folder: Path) -> None:
         """
@@ -516,21 +486,21 @@ class Preprocessor:
         preprocess_folder : Path
             Preprocessing output folder.
         """
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("PREPROCESSING SUMMARY")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         if self.watershed_stats is not None:
             logger.info(
                 "Watershed centroid: (%.2f, %.2f)",
-                self.watershed_stats['centroid_x'],
-                self.watershed_stats['centroid_y'],
+                self.watershed_stats["centroid_x"],
+                self.watershed_stats["centroid_y"],
             )
         if self.domain_stats is not None:
             logger.info(
                 "Domain centroid: (%.2f, %.2f)",
-                self.domain_stats['centroid_x'],
-                self.domain_stats['centroid_y'],
+                self.domain_stats["centroid_x"],
+                self.domain_stats["centroid_y"],
             )
 
         # Count storm centers
@@ -539,11 +509,12 @@ class Preprocessor:
             if candidate.exists():
                 storm_df = read_dataframe(candidate)
                 logger.info("Total storms processed: %d", len(storm_df))
-                logger.info(
-                    "Max precipitation range: %.1f - %.1f mm",
-                    storm_df['pmax_mm'].min(),
-                    storm_df['pmax_mm'].max(),
-                )
+                if "pmax_mm" in storm_df.columns:
+                    logger.info(
+                        "Max precipitation range: %.1f - %.1f mm",
+                        storm_df["pmax_mm"].min(),
+                        storm_df["pmax_mm"].max(),
+                    )
                 break
 
         # Summary of valid placements if available
@@ -556,11 +527,13 @@ class Preprocessor:
                 # Get available columns
                 columns = list(validity_df.columns)
 
-                logger.info("Valid placements computed: %d candidate pairs", total_candidates)
+                logger.info(
+                    "Valid placements computed: %d candidate pairs", total_candidates
+                )
                 logger.info("Validity data columns: %s", ", ".join(columns))
                 break
 
-        logger.info("="*70)
+        logger.info("=" * 70)
 
     def _validate_existing_preprocessing(self, existing_run: str | Path) -> Path:
         """
@@ -633,7 +606,9 @@ class Preprocessor:
         with open(run_folder / "run_config.yaml", "w") as f:
             yaml.dump(self.config, f, default_flow_style=False)
 
-        logger.info("✅ Saved run configuration: %s", run_folder / "run_config.yaml")
+        logger.info(
+            "✅ Saved run configuration: %s", run_folder / "run_config.yaml"
+        )
 
     def _load_config(self) -> dict:
         """
@@ -748,7 +723,7 @@ class Preprocessor:
         for key in keys:
             value = value[key]
         return resolve_path(value, self.config_dir)
-    
+
     def _create_plot(self, output_dir: Path) -> None:
         """
         Create visualization plot of valid placement region.
@@ -788,4 +763,4 @@ class Preprocessor:
         except Exception as e:
             logger.error("  ❌ Error creating plot: %s", str(e))
             logger.debug("Full error:", exc_info=True)
-        logger.info("  ⚠️  Continuing preprocessing despite plot creation failure")
+            logger.info("  ⚠️  Continuing preprocessing despite plot creation failure")

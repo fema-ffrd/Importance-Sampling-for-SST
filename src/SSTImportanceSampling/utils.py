@@ -16,7 +16,7 @@ import pystac
 
 def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     """
-    Configure and return a logger instance.
+    Configure and return a logger instance (no propagation to prevent duplicates).
 
     Parameters
     ----------
@@ -37,9 +37,14 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     """
     logger = logging.getLogger(name)
 
+    # Prevent propagation to parent loggers
+    logger.propagate = False
+
+    # Don't add handlers if they already exist
     if logger.handlers:
         return logger
 
+    # Add single handler
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",

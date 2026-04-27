@@ -95,6 +95,13 @@
           "description": "DSS grid keyword filter (e.g., 'SHG')",
           "default": "SHG"
         },
+        "dss_max_workers": {
+          "type": "integer",
+          "description": "Number of parallel workers for DSS file processing (recommended: CPU_count, typical range: 4-16)",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 8
+        },
         "random_seed": {
           "type": ["integer", "null"],
           "description": "Random seed for reproducibility (null = auto-generate random seed)",
@@ -136,15 +143,17 @@
             },
             "max_workers": {
               "type": "integer",
-              "description": "Number of parallel workers (recommended: CPU_count / 2)",
+              "description": "Number of parallel workers for validity checking (recommended: 2-8, CPU_count / 2)",
               "minimum": 1,
+              "maximum": 128,
               "default": 4
             },
             "fishnet_chunk_size": {
               "type": "integer",
-              "description": "Fishnet grid chunk size for memory efficiency (smaller=less memory, slower; larger=more memory, faster)",
+              "description": "Fishnet grid chunk size for memory efficiency (smaller=less memory/slower; larger=more memory/faster, recommended: 10000-100000)",
               "minimum": 100,
-              "default": 10000
+              "maximum": 1000000,
+              "default": 50000
             }
           }
         }

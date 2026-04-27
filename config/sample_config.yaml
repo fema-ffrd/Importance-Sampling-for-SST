@@ -1,11 +1,13 @@
 # ============================================================
 # SST Importance Sampling Configuration
+# ============================================================
 # Project: Trinity
+# Description: Probabilistic Transposition and Importance Sampling
 # ============================================================
 
-# ------------------------------------------------------------
+# ============================================================
 # PROJECT METADATA
-# ------------------------------------------------------------
+# ============================================================
 project:
   # Unique project identifier (used in run folder naming)
   name: "trinity"
@@ -13,98 +15,141 @@ project:
   # Run type (used to differentiate folder naming for sampling strategies)
   run_type: "sst_ais"
 
-# ------------------------------------------------------------
+# ============================================================
 # INPUT DATA PATHS
-# All relative paths are resolved relative to THIS config file
-# ------------------------------------------------------------
+# All relative paths are resolved relative to THIS config file directory
+# ============================================================
 paths:
 
-  # Watershed boundary (GeoJSON)
+  # Watershed boundary polygon (GeoJSON format)
+  # CRS will be auto-detected and converted to SHG (SHaped Grid) if needed
   watershed_geojson: "../data/0_source/trinity/trinity.geojson"
 
-  # Transposition domain boundary (GeoJSON)
+  # Transposition domain boundary polygon (GeoJSON format)
   domain_geojson: "../data/0_source/trinity/trinity-transpo-area-v01.geojson"
 
-  # Directory containing DSS files OR a STAC catalog JSON
+  # DSS file catalog path (directory path or STAC catalog JSON)
+  # Examples:
+  #   - Directory: "../data/0_source/trinity/dss_files"
+  #   - STAC catalog: "../data/catalogs/dss_catalog.json"
   dss_catalog: "../data/0_source/trinity/dss_files"
 
-# ------------------------------------------------------------
+# ============================================================
 # OUTPUT SETTINGS
-# ------------------------------------------------------------
+# ============================================================
 output:
 
   # Base directory where all runs will be created
-  # Each execution creates:
-  #   <project_name>_<timestamp>_seedXXXX/
+  # Each execution creates a subfolder:
+  #   <project_name>_<run_type>_<timestamp>_seed<XXXX>/
+  # Example output:
+  #   trinity_sst_ais_20240415_101200_seed4321/
   base_folder: "../data/1_interim/trinity"
 
   # Export format for all output tables
-  # Options: "csv" or "parquet"
-  # - csv: human-readable, larger file size
-  # - parquet: compressed, faster I/O, recommended for large datasets
+  # Options:
+  #   "csv"      - human-readable text format
+  #   "parquet"  - compressed columnar format (recommended for large datasets)
+  # Parquet benefits: faster I/O, better compression, faster analysis
   export_format: "csv"
 
-# ------------------------------------------------------------
+# ============================================================
 # PREPROCESSING SETTINGS
-# ------------------------------------------------------------
+# ============================================================
 preprocess:
 
-  # Mode options:
-  #   "force"  → always recompute preprocessing
-  #   "reuse"  → require existing_run
-  #   "auto"   → reuse if existing_run provided, otherwise compute
+  # Processing mode selection
+  # Options:
+  #   "force"  - Always recompute preprocessing (ignore existing)
+  #   "reuse"  - Require existing_run parameter (fail if not provided)
+  #   "auto"   - Reuse if existing_run provided, otherwise compute
   mode: "auto"
 
-  # Optional: specify an existing run folder (relative or absolute path)
+  # Optional: Path to existing preprocessing folder for reuse
+  # Only used if mode="reuse" or mode="auto"
+  # Can be absolute path or relative to config file
   # Example:
   #   existing_run: "./data/1_interim/trinity/trinity_sst_ais_20240415_101200_seed1234"
   existing_run: null
 
   # Fishnet grid spacing (units = projected CRS units)
-  # e.g., 1000 = 1km spacing if CRS is in meters
+  # Example values:
+  #   - 1000 = 1km spacing (if CRS is in meters)
+  # Larger spacing = fewer points = faster processing but coarser resolution
   grid_spacing: 1000
 
-  # DSS filtering options
-  # Only records containing these keywords will be used
+  # DSS file filtering and reading options
+  # variable_keyword: Search for this string in DSS record names
+  #   Examples: "PRECIPITATION"
   dss_variable_keyword: "PRECIPITATION"
+
+  # grid_keyword: Search for this string in DSS grid names
   dss_grid_keyword: "SHG"
 
   # Random seed for reproducibility
-  # If null → automatically generated
+  # If null: automatically generated (stored in run config)
+  # If integer: uses specified seed for reproducible results
   random_seed: null
 
   # ----------------------------------------------------------
-  # VALIDITY CHECKING (Storm Transposition)
+  # PARALLEL DSS PROCESSING OPTIMIZATION
+  # ----------------------------------------------------------
+  # dss_max_workers: Number of parallel processes for DSS file reading
+  # Recommended values:
+  #   - 4-8: typical workstations (4-8 CPU cores)
+  #   - 12-16: high-performance machines (12-16 cores)
+  #   - 24-32: server-grade systems (24+ cores)
+  # Memory usage: approximately max_workers * max_file_size
+  # Speedup: approximately linear with cores (15-30x total improvement)
+  dss_max_workers: 16
+
+  # ----------------------------------------------------------
+  # VALIDITY CHECKING (Storm Transposition Constraints)
+  # Determines which fishnet points are valid candidates for each storm
   # ----------------------------------------------------------
   validity:
 
-    # Enable validity checking of storm placements
+    # Enable/disable validity checking
+    # Set to false to skip this step (useful for testing)
     enabled: true
 
     # Export format for validity results
     # Options: "csv" or "parquet"
-    # Defaults to output.export_format if not specified
+    # If not specified, defaults to output.export_format
     export_format: "csv"
 
     # Number of parallel workers for validity computation
-    # Recommended: use number of CPU cores / 2
-    # Example: 4-8 for typical machines, 16-32 for high-end servers
-    max_workers: 4
+    # Recommended values:
+    #   - 4: typical workstations
+    #   - 8: high-performance machines
+    #   - 16: server-grade systems
+    # Note: Uses ProcessPoolExecutor (true parallelization across cores)
+    max_workers: 16
 
     # Fishnet chunk size for memory efficiency
-    # Process fishnet grid in chunks of this size
-    # - Smaller values: lower memory usage, slower
-    # - Larger values: higher memory usage, faster
-    # Recommended: 5000-20000 depending on available RAM
-    fishnet_chunk_size: 10000
+    # Process fishnet grid in spatial chunks of this size
+    # Larger values → faster but higher memory
+    # Smaller values → slower but lower memory
+    # Recommended range: 10000 - 100000 depending on system RAM
+    # - 10000: conservative (for 8GB RAM)
+    # - 50000: balanced (for 16GB RAM)
+    # - 100000: aggressive (for 32GB+ RAM)
+    fishnet_chunk_size: 100000
 
   # ----------------------------------------------------------
-  # NetCDF Output Compression
+  # NetCDF OUTPUT COMPRESSION SETTINGS
+  # Controls cumulative precipitation netCDF file compression
   # ----------------------------------------------------------
   netcdf_compression:
 
-    # Enable NetCDF compression
+    # Enable Zlib (deflate) compression
+    # Benefits: ~50-90% file size reduction
+    # Cost: slower write speed (typically negligible)
     zlib: true
 
-    # Compression level (1 = fast, 9 = max compression)
+    # Compression level (integer 1-9)
+    # 1 = fastest/least compression
+    # 9 = slowest/maximum compression
+    # Recommended: 4 (good balance)
+    # Memory usage proportional to compression level
     complevel: 4

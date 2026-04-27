@@ -21,6 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
 
@@ -55,6 +57,16 @@ docs = [
     "sphinx-autodoc-typehints>=1.19",
 ]
 
+[project.urls]
+Homepage = "https://github.com/fema-ffrd/Importance-Sampling-for-SST"
+Documentation = "https://github.com/fema-ffrd/Importance-Sampling-for-SST"
+Repository = "https://github.com/fema-ffrd/Importance-Sampling-for-SST.git"
+Issues = "https://github.com/fema-ffrd/Importance-Sampling-for-SST/issues"
+
+[project.scripts]
+sst-importance-sampling = "run:main"
+sst-preprocess = "run:run_preprocessing"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = ["SSTImportanceSampling"]
@@ -64,7 +76,7 @@ SSTImportanceSampling = ["py.typed", "schema.json"]
 
 [tool.black]
 line-length = 100
-target-version = ["py38"]
+target-version = ["py38", "py39", "py310", "py311", "py312", "py313"]
 
 [tool.ruff]
 line-length = 100
@@ -72,10 +84,16 @@ target-version = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Line length handled by black
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src --cov-report=html --cov-report=term-missing"
+addopts = "--cov=src --cov-report=html --cov-report=term-missing -v"
 minversion = "7.0"
 
 [tool.mypy]
@@ -84,3 +102,21 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/SSTImportanceSampling"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
