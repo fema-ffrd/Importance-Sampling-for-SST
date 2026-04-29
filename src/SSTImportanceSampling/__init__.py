@@ -1,3 +1,3 @@
-from .preprocessor import Preprocessor
+from .core.preprocessor import Preprocessor
 
 __all__ = ["Preprocessor"]

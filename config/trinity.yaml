@@ -25,7 +25,7 @@ output:
 # ============================================================
 preprocess:
   mode: "auto"
-  existing_run: null
+  existing_run: "../data/1_interim/trinity/trinity_sst_ais_20260428_162432_seed3468"
   grid_spacing: 1000
   dss_variable_keyword: "PRECIPITATION"
   dss_grid_keyword: "SHG"

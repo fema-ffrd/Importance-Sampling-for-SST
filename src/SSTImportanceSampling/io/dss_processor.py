@@ -45,7 +45,7 @@ def _read_dss_and_extract_max(args: Tuple[str, str, str]) -> Tuple[str, xr.DataA
     dss_file, var_kw, grid_kw = args
 
     from .dss_reader import read_dss_cumulative
-    from .utils import suppress_stdout_stderr
+    from ..utils import suppress_stdout_stderr
 
     event_id = Path(dss_file).stem
 
@@ -204,7 +204,7 @@ def process_dss_batch(
     )
 
     # Save storm centers
-    from .utils import save_dataframe, get_table_extension
+    from ..utils import save_dataframe, get_table_extension
 
     centers_path = output_dir / f"storm_centers.{get_table_extension(export_format)}"
     save_dataframe(pd.DataFrame(storm_centers), centers_path, export_format)

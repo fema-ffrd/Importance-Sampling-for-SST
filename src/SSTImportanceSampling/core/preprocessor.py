@@ -5,19 +5,20 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 import xarray as xr
 import yaml
 
-from .config import ConfigValidator
-from .dss_processor import process_dss_batch
-from .fishnet import create_uniform_fishnet_csv
-from .geometry import (
+from ..config import ConfigValidator
+from ..io.dss_processor import process_dss_batch
+from ..geometry.fishnet import create_uniform_fishnet_csv
+from ..geometry.geometry import (
     compute_spatial_stats,
     load_and_project_to_shg,
 )
-from .utils import (
+from ..utils import (
     collect_dss_file_paths,
     get_table_extension,
     read_dataframe,
@@ -26,8 +27,8 @@ from .utils import (
     setup_logger,
     suppress_stdout_stderr,
 )
-from .validity import generate_valid_storm_placements
-from .plots import plot_valid_region_overview
+from ..validation.validity import generate_valid_storm_placements
+from ..visualization.plots import plot_valid_region_overview
 
 logger = setup_logger(__name__)
 
@@ -44,6 +45,32 @@ REQUIRED_FILES = {
     "domain": ["domain.gpkg"],
     "fishnet_points": ["fishnet_points.csv", "fishnet_points.parquet"],
 }
+
+
+class PreprocessingResult(NamedTuple):
+    """
+    Result container for preprocessing pipeline.
+
+    Attributes
+    ----------
+    current_run : Path
+        Path to the timestamped run directory created in this execution.
+        Contains run_config.yaml and sampling subdirectory.
+    preprocessing : Path
+        Path to preprocessing output directory containing processed geospatial data.
+        Can be newly created or from an existing run if reuse mode is enabled.
+
+    Examples
+    --------
+    >>> result = preprocessor.run()
+    >>> print(result.current_run)
+    >>> print(result.preprocessing)
+    >>> # Access via unpacking if needed:
+    >>> current_run, preprocessing = result
+    """
+
+    current_run: Path | None
+    preprocessing: Path | None
 
 
 class Preprocessor:
@@ -114,7 +141,7 @@ class Preprocessor:
 
         logger.info("Export format: %s", self.export_format.upper())
 
-    def run(self, dry_run: bool = False) -> Path | None:
+    def run(self, dry_run: bool = False) -> PreprocessingResult:
         """
         Execute the complete preprocessing pipeline.
 
@@ -127,8 +154,22 @@ class Preprocessor:
 
         Returns
         -------
-        Path | None
-            Path to preprocessing output directory, or None if dry_run=True.
+        PreprocessingResult
+            Named tuple containing:
+            - current_run: Path to the timestamped run directory for this execution
+            - preprocessing: Path to preprocessing output directory (new or existing)
+            
+            Returns (None, None) if dry_run=True.
+
+        Examples
+        --------
+        >>> preprocessor = Preprocessor("config.yaml")
+        >>> result = preprocessor.run()
+        >>> print(f"Run directory: {result.current_run}")
+        >>> print(f"Preprocessing data: {result.preprocessing}")
+        
+        >>> # Can also unpack if needed
+        >>> current_run, preprocessing = preprocessor.run()
         """
         logger.info("=" * 70)
         logger.info(" SST Importance Sampling - Preprocessor")
@@ -137,18 +178,18 @@ class Preprocessor:
         if dry_run:
             logger.info("🏜️  DRY RUN MODE - Configuration validated, no data processed")
             logger.info("=" * 70)
-            return None
+            return PreprocessingResult(None, None)
 
-        run_folder = self._create_run_folder()
-        run_folder.joinpath("sampling").mkdir()
+        current_run_folder = self._create_run_folder()
+        current_run_folder.joinpath("sampling").mkdir()
 
-        preprocess_folder = self._handle_preprocessing(run_folder)
-        self._save_run_metadata(run_folder, preprocess_folder)
+        preprocessing_folder = self._handle_preprocessing(current_run_folder)
+        self._save_run_metadata(current_run_folder, preprocessing_folder)
 
-        logger.info("✅ Preprocessing complete: %s", preprocess_folder)
+        logger.info("✅ Preprocessing complete: %s", preprocessing_folder)
         logger.info("=" * 70)
 
-        return preprocess_folder
+        return PreprocessingResult(current_run_folder, preprocessing_folder)
 
     def _validate_configuration(self) -> None:
         """
@@ -179,19 +220,19 @@ class Preprocessor:
 
         logger.info("✅ Configuration validation passed")
 
-    def _handle_preprocessing(self, run_folder: Path) -> Path:
+    def _handle_preprocessing(self, current_run_folder: Path) -> Path:
         """
         Route preprocessing based on configuration mode.
 
         Parameters
         ----------
-        run_folder : Path
+        current_run_folder : Path
             Current run folder.
 
         Returns
         -------
         Path
-            Preprocessing output directory.
+            Preprocessing output directory (new or existing).
 
         Raises
         ------
@@ -203,7 +244,7 @@ class Preprocessor:
 
         if mode == "force":
             logger.info("Mode: FORCE - Running new preprocessing")
-            return self._run_preprocessing(run_folder)
+            return self._run_preprocessing(current_run_folder)
 
         if mode == "reuse":
             if not existing_run:
@@ -216,11 +257,11 @@ class Preprocessor:
                 logger.info("Mode: AUTO - Existing run found, reusing preprocessing")
                 return self._validate_existing_preprocessing(existing_run)
             logger.info("Mode: AUTO - No existing run, running new preprocessing")
-            return self._run_preprocessing(run_folder)
+            return self._run_preprocessing(current_run_folder)
 
         raise ValueError(f"Invalid preprocess mode: {mode}")
 
-    def _run_preprocessing(self, run_folder: Path) -> Path:
+    def _run_preprocessing(self, current_run_folder: Path) -> Path:
         """
         Execute preprocessing pipeline.
 
@@ -229,7 +270,7 @@ class Preprocessor:
 
         Parameters
         ----------
-        run_folder : Path
+        current_run_folder : Path
             Current run folder.
 
         Returns
@@ -237,22 +278,22 @@ class Preprocessor:
         Path
             Preprocessing output directory.
         """
-        preprocess_folder = run_folder / "preprocessing"
-        preprocess_folder.mkdir()
+        preprocessing_folder = current_run_folder / "preprocessing"
+        preprocessing_folder.mkdir()
 
         logger.info("\n" + "-" * 70)
         logger.info("PREPROCESSING PIPELINE")
         logger.info("-" * 70)
 
-        self._process_geometries(preprocess_folder)
-        self._process_fishnet(preprocess_folder)
-        self._process_dss_files(preprocess_folder)
-        self._process_validity_check(preprocess_folder)
+        self._process_geometries(preprocessing_folder)
+        self._process_fishnet(preprocessing_folder)
+        self._process_dss_files(preprocessing_folder)
+        self._process_validity_check(preprocessing_folder)
 
-        self._print_preprocessing_summary(preprocess_folder)
+        self._print_preprocessing_summary(preprocessing_folder)
 
-        logger.info("✅ Preprocessing saved to: %s", preprocess_folder)
-        return preprocess_folder
+        logger.info("✅ Preprocessing saved to: %s", preprocessing_folder)
+        return preprocessing_folder
 
     def _process_geometries(self, output_dir: Path) -> None:
         """
@@ -477,13 +518,13 @@ class Preprocessor:
 
         self._create_plot(output_dir)
 
-    def _print_preprocessing_summary(self, preprocess_folder: Path) -> None:
+    def _print_preprocessing_summary(self, preprocessing_folder: Path) -> None:
         """
         Print summary of preprocessing results.
 
         Parameters
         ----------
-        preprocess_folder : Path
+        preprocessing_folder : Path
             Preprocessing output folder.
         """
         logger.info("\n" + "=" * 70)
@@ -505,7 +546,7 @@ class Preprocessor:
 
         # Count storm centers
         for ext in ["parquet", "csv"]:
-            candidate = preprocess_folder / f"storm_centers.{ext}"
+            candidate = preprocessing_folder / f"storm_centers.{ext}"
             if candidate.exists():
                 storm_df = read_dataframe(candidate)
                 logger.info("Total storms processed: %d", len(storm_df))
@@ -519,7 +560,7 @@ class Preprocessor:
 
         # Summary of valid placements if available
         for ext in ["parquet", "csv"]:
-            candidate = preprocess_folder / f"valid_placements.{ext}"
+            candidate = preprocessing_folder / f"valid_placements.{ext}"
             if candidate.exists():
                 validity_df = read_dataframe(candidate)
                 total_candidates = len(validity_df)
@@ -555,10 +596,10 @@ class Preprocessor:
             If required files are missing.
         """
         folder = resolve_path(existing_run, self.config_dir)
-        preprocess_folder = folder / "preprocessing"
+        preprocessing_folder = folder / "preprocessing"
 
         for name, patterns in REQUIRED_FILES.items():
-            if not any((preprocess_folder / p).exists() for p in patterns):
+            if not any((preprocessing_folder / p).exists() for p in patterns):
                 raise FileNotFoundError(
                     f"Missing required file '{name}': {' or '.join(patterns)}"
                 )
@@ -566,7 +607,7 @@ class Preprocessor:
         # Load existing spatial stats
         bounds_file = None
         for pattern in ["spatial_bounds.parquet", "spatial_bounds.csv"]:
-            candidate = preprocess_folder / pattern
+            candidate = preprocessing_folder / pattern
             if candidate.exists():
                 bounds_file = candidate
                 break
@@ -581,33 +622,35 @@ class Preprocessor:
                 if not domain_row.empty:
                     self.domain_stats = domain_row.iloc[0]
 
-        logger.info("✅ Reusing preprocessing from: %s", preprocess_folder)
-        return preprocess_folder
+        logger.info("✅ Reusing preprocessing from: %s", preprocessing_folder)
+        return preprocessing_folder
 
-    def _save_run_metadata(self, run_folder: Path, preprocess_folder: Path) -> None:
+    def _save_run_metadata(
+        self, current_run_folder: Path, preprocessing_folder: Path
+    ) -> None:
         """
         Save run configuration and metadata.
 
         Parameters
         ----------
-        run_folder : Path
+        current_run_folder : Path
             Current run folder.
-        preprocess_folder : Path
-            Preprocessing output folder.
+        preprocessing_folder : Path
+            Preprocessing output folder (new or existing).
         """
         self.config["run_metadata"] = {
             "timestamp": self.timestamp,
             "seed": self.seed,
-            "run_folder": str(run_folder),
-            "preprocessing_used": str(preprocess_folder),
+            "run_folder": str(current_run_folder),
+            "preprocessing_used": str(preprocessing_folder),
             "export_format": self.export_format,
         }
 
-        with open(run_folder / "run_config.yaml", "w") as f:
+        with open(current_run_folder / "run_config.yaml", "w") as f:
             yaml.dump(self.config, f, default_flow_style=False)
 
         logger.info(
-            "✅ Saved run configuration: %s", run_folder / "run_config.yaml"
+            "✅ Saved run configuration: %s", current_run_folder / "run_config.yaml"
         )
 
     def _load_config(self) -> dict:

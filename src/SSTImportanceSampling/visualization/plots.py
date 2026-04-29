@@ -7,7 +7,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .utils import read_dataframe
+from ..utils import read_dataframe
 
 logger = logging.getLogger(__name__)
 
