@@ -13,14 +13,14 @@ from .transposer import create_precipitation_transpose
 logger = logging.getLogger(__name__)
 
 
-def sample_storms_uniformly(df, n_samples=10, seed=None):
+def sample_storms_uniformly(df, n_samples=20000, seed=None):
     """
     Sample n events uniformly with replacement.
     For each event, sample one storm center uniformly from available rows.
 
     Parameters:
     -----------
-    df : DataFrame with 'event_id' column and other storm center data (x, y coords)
+    df : DataFrame with 'storm_path' column and other storm center data (x, y coords)
     n_samples : number of times to repeat the sampling
     seed : random seed for reproducibility
 
@@ -35,12 +35,12 @@ def sample_storms_uniformly(df, n_samples=10, seed=None):
     weight = 1.0 / n_samples  # Uniform weight for all samples
 
     for i in range(n_samples):
-        # Step 1: Sample one unique event_id uniformly
-        unique_events = df['event_id'].unique()
+        # Step 1: Sample one unique storm_path uniformly
+        unique_events = df['storm_path'].unique()
         sampled_event = np.random.choice(unique_events)
 
-        # Step 2: Get all rows with this event_id
-        event_rows = df[df['event_id'] == sampled_event]
+        # Step 2: Get all rows with this storm_path
+        event_rows = df[df['storm_path'] == sampled_event]
 
         # Step 3: Sample ONE row uniformly from this event (storm center)
         sampled_row = event_rows.sample(n=1, replace=False).copy()
@@ -64,45 +64,31 @@ class Sampler:
         config: dict,
         preprocessor_folder: Path,
         output_folder: Path,
-        random_seed: int = None,
         apply_transpose: bool = True
     ):
-        """
-        Initialize Sampler.
-
-        Parameters:
-        -----------
-        config : dict
-            Sampling configuration from config.yaml
-        preprocessor_folder : Path
-            Path to preprocessor output folder (where to READ data from: preprocessing/)
-        output_folder : Path
-            Path where sampling results will be saved (sampling/ subfolder, NOT preprocessing/)
-        random_seed : int, optional
-            Random seed for reproducibility
-        apply_transpose : bool, optional
-            Whether to apply transposition and calculate precipitation statistics (default: True)
-        """
         self.config = config
         self.preprocessor_folder = Path(preprocessor_folder)
         self.output_folder = Path(output_folder)
-        self.random_seed = random_seed
         self.apply_transpose = apply_transpose
+
+        self.random_seed = int(config["global"]["random_seed"])
+
+        self.export_format = config["output"]["export_format"].lower()
+
         self.precip_transpose = None
 
         logger.info(f"📊 Initializing Sampler")
-        logger.info(f"   Events: {self.config['n_events']}")
+        logger.info(f"   Events: {self.config['sampling']['n_events']}")
+        logger.info(f"   Seed: {self.random_seed}")
+        logger.info(f"   Export format: {self.export_format}")
         logger.info(f"   Reading from: {self.preprocessor_folder}")
         logger.info(f"   Saving to: {self.output_folder}")
-        logger.info(f"   Apply transposition: {self.apply_transpose}")
 
-        # Initialize precipitation transpose if needed
         if self.apply_transpose:
             try:
                 self.precip_transpose = create_precipitation_transpose(self.preprocessor_folder)
             except FileNotFoundError as e:
                 logger.warning(f"⚠️  Transposition files not found: {e}")
-                logger.warning(f"   Continuing without transposition")
                 self.apply_transpose = False
 
     def load_preprocessor_data(self):
@@ -146,18 +132,18 @@ class Sampler:
             Sampled results
         """
         logger.info("🎲 Running uniform sampling...")
-        logger.info(f"   Samples: {self.config['n_events']}")
+        logger.info(f"   Samples: {self.config['sampling']['n_events']}")
 
-        # Check if event_id column exists
-        if 'event_id' not in valid_placements.columns:
+        # Check if storm_path column exists
+        if 'storm_path' not in valid_placements.columns:
             raise ValueError(
-                f"valid_placements must contain 'event_id' column. "
+                f"valid_placements must contain 'storm_path' column. "
                 f"Found columns: {list(valid_placements.columns)}"
             )
 
         results = sample_storms_uniformly(
             df=valid_placements,
-            n_samples=self.config['n_events'],
+            n_samples=self.config['sampling']['n_events'],
             seed=self.random_seed
         )
 
@@ -190,7 +176,7 @@ class Sampler:
             results = self.precip_transpose.transpose(results)
 
             logger.info(f"   ✓ Applied transposition")
-            logger.info(f"   ✓ Non-null precipitation values: {results['precip_mm'].notna().sum()} / {len(results)}")
+            logger.info(f"   ✓ Non-null precipitation values: {results['precip'].notna().sum()} / {len(results)}")
 
             return results
 
@@ -202,64 +188,55 @@ class Sampler:
 
     def save_results(self, results: pd.DataFrame, export_format: str) -> Path:
         """
-        Save sampling results.
-
-        Parameters:
-        -----------
-        results : pd.DataFrame
-            Sampling results
-        export_format : str
-            Export format ('csv' or 'parquet')
-
-        Returns:
-        --------
-        Path
-            Path to saved file
+        Save sampling results as:
+            storms.csv or storms.parquet
+        and summary.txt
         """
+
         self.output_folder.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_format = export_format.lower()
 
-        if export_format.lower() == 'parquet':
-            filename = f"samples_uniform_{timestamp}.parquet"
+        if export_format == "parquet":
+            filename = "storms.parquet"
             filepath = self.output_folder / filename
-            results.to_parquet(filepath, index=False, compression='snappy')
-            logger.info(f"   ✓ Saved results to {filename}")
-        else:  # csv
-            filename = f"samples_uniform_{timestamp}.csv"
+            results.to_parquet(filepath, index=False, compression="snappy")
+        else:
+            filename = "storms.csv"
             filepath = self.output_folder / filename
             results.to_csv(filepath, index=False)
-            logger.info(f"   ✓ Saved results to {filename}")
 
-        # Also save summary statistics
+        logger.info(f"   ✓ Saved results to {filename}")
+
+        # ---------------- Summary ----------------
+
         summary = {
             "method": "uniform",
             "n_events": len(results),
-            "timestamp": timestamp,
             "columns": list(results.columns),
             "n_rows": len(results),
         }
 
-        # Add transposition summary if available
-        if 'precip_mm' in results.columns:
-            valid_precip = results['precip_mm'].dropna()
+        if "precip" in results.columns:
+            valid_precip = results["precip"].dropna()
             if len(valid_precip) > 0:
                 summary.update({
-                    "precip_mm_mean": float(valid_precip.mean()),
-                    "precip_mm_std": float(valid_precip.std()),
-                    "precip_mm_min": float(valid_precip.min()),
-                    "precip_mm_max": float(valid_precip.max()),
-                    "precip_mm_count": len(valid_precip),
+                    "precip_mean": float(valid_precip.mean()),
+                    "precip_std": float(valid_precip.std()),
+                    "precip_min": float(valid_precip.min()),
+                    "precip_max": float(valid_precip.max()),
+                    "precip_count": len(valid_precip),
                 })
 
-        summary_file = self.output_folder / "sampling_summary.txt"
-        with open(summary_file, 'w') as f:
+        summary_file = self.output_folder / "summary.txt"
+
+        with open(summary_file, "w") as f:
             f.write("SAMPLING SUMMARY\n")
             f.write("=" * 70 + "\n")
             for key, val in summary.items():
                 f.write(f"{key}: {val}\n")
 
-        logger.info(f"   ✓ Saved summary to sampling_summary.txt")
+        logger.info("   ✓ Saved summary to summary.txt")
 
         return filepath
 
@@ -287,8 +264,7 @@ class Sampler:
             results = self.apply_storm_transposition(results)
 
             # Save results in the same preprocessing folder
-            export_format = self.config.get('export_format', 'csv')
-            output_file = self.save_results(results, export_format)
+            output_file = self.save_results(results, self.export_format)
 
             logger.info("=" * 70)
             logger.info(f"✅ Sampling completed successfully!")

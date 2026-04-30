@@ -1,9 +1,16 @@
 # ============================================================
 # SST Importance Sampling Configuration
 # ============================================================
+
 project:
   name: "trinity"
-  run_type: "sst_ais"
+  run_type: "sst-ais"
+
+# ============================================================
+# GLOBAL SETTINGS
+# ============================================================
+global:
+  random_seed: 5131
 
 # ============================================================
 # INPUT DATA PATHS
@@ -18,24 +25,21 @@ paths:
 # ============================================================
 output:
   base_folder: "../data/1_interim/trinity"
-  export_format: "csv"
+  export_format: "parquet"     # csv or parquet for tabular data
 
 # ============================================================
 # PREPROCESSING SETTINGS
 # ============================================================
 preprocess:
   mode: "auto"
-  existing_run: "../data/1_interim/trinity/trinity_sst_ais_20260428_162432_seed3468"
+  existing_run: null
   grid_spacing: 1000
   dss_variable_keyword: "PRECIPITATION"
   dss_grid_keyword: "SHG"
-  random_seed: null
-  
   dss_max_workers: 16
 
   validity:
     enabled: true
-    export_format: "csv"
     max_workers: 16
     fishnet_chunk_size: 100000
 
@@ -47,11 +51,5 @@ preprocess:
 # SAMPLING SETTINGS
 # ============================================================
 sampling:
-  # Sampling method: "uniform"
   method: "uniform"
-  
-  # Number of events to sample
   n_events: 100
-  
-  # Export format: "csv" or "parquet"
-  export_format: "csv"

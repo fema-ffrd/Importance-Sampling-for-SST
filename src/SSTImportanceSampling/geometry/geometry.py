@@ -106,7 +106,6 @@ def compute_spatial_stats(gdf: gpd.GeoDataFrame, name: str = "geometry") -> pd.S
         - range_x: East-West extent (maxx - minx)
         - range_y: North-South extent (maxy - miny)
         - area: Total area in square units
-        - crs: CRS of the geometry
 
     Examples
     --------
@@ -130,7 +129,6 @@ def compute_spatial_stats(gdf: gpd.GeoDataFrame, name: str = "geometry") -> pd.S
             "range_x": float(maxx - minx),
             "range_y": float(maxy - miny),
             "area": float(area),
-            "crs": str(gdf.crs) if gdf.crs else "Unknown",
         }
     )
 

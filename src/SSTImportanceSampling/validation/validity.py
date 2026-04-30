@@ -142,7 +142,7 @@ def _process_fishnet_chunk(args):
     stage2_checks = 0
     results = []
 
-    for event_id, orig_x, orig_y in storms_data:
+    for storm_path, orig_x, orig_y in storms_data:
         offset_x = fish_chunk_x - orig_x
         offset_y = fish_chunk_y - orig_y
 
@@ -161,7 +161,7 @@ def _process_fishnet_chunk(args):
             if _check_full_watershed_containment(
                 coords_data, offset_x[idx], offset_y[idx], domain_geom
             ):
-                results.append((event_id, fish_chunk_x[idx], fish_chunk_y[idx]))
+                results.append((storm_path, fish_chunk_x[idx], fish_chunk_y[idx]))
 
     return results, stage1_pass_count, stage2_checks
 
@@ -203,7 +203,7 @@ def generate_valid_storm_placements(
     interior_points = _extract_interior_points(watershed)
     domain_wkt = domain.wkt
 
-    storms_data = storms_df[["event_id", "x", "y"]].values
+    storms_data = storms_df[["storm_path", "x", "y"]].values
     storms_data[:, 1:] = storms_data[:, 1:].astype(np.float64)
 
     del fishnet_df, storms_df
@@ -255,7 +255,7 @@ def generate_valid_storm_placements(
 
     result_df = pd.DataFrame(
         all_valid_results,
-        columns=["event_id", "x", "y"]
+        columns=["storm_path", "x", "y"]
     )
 
     print("\nSaving results...")
